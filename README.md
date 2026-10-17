@@ -16,7 +16,7 @@ Tab opens the panel. Most are unlimited; the rarer ones come a few per game and 
 | --- | --- |
 | Bazooka | Blows up on contact. The wind bends it. |
 | Grenade | Bounces, goes off when the fuse runs out; 1-5 set the fuse. |
-| Cluster | A grenade that bursts into five bomblets. |
+| Cluster | Flies like a shell; press fire again while it flies and five bomblets rain down from there. On the ground it bursts upward. |
 | Shotgun | Two straight shots of 30; aim again in between. |
 | Dynamite | Dropped at your feet, five seconds. Run. |
 | Airstrike | Five bombs on a mark, from the side you point at. Open sky only. |

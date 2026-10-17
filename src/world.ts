@@ -177,6 +177,23 @@ const BOMB_VX = 2.4;
 export const BOMBLET_R = 18;
 export const BOMBLET_DMG = 15;
 
+/**
+ * Where a cluster's five bomblets go: burst in flight they rain down, carrying some of the shell's
+ * speed; on the ground they fan upward. `jitter` is a random number in 0..1 for a little spread.
+ */
+export function bombletVelocities(p: { vx: number; vy: number }, inFlight: boolean, jitter: () => number) {
+  const out: [number, number][] = [];
+  for (let k = 0; k < 5; k++) {
+    if (inFlight) out.push([p.vx * 0.5 + (k - 2) * 1.3 + (jitter() - 0.5) * 0.6, Math.max(0.5, p.vy * 0.4) + jitter() * 0.8]);
+    else {
+      const a = -Math.PI / 2 + (k - 2) * 0.45 + (jitter() - 0.5) * 0.25;
+      const s = 3 + jitter() * 2.5;
+      out.push([Math.cos(a) * s, Math.sin(a) * s]);
+    }
+  }
+  return out;
+}
+
 export interface Float {
   x: number;
   y: number;
@@ -509,6 +526,8 @@ export class World {
       this.stepBodies();
       return;
     }
+    // A cluster in flight bursts on the next press of fire.
+    if (input.pressed.has('fire') && !this.charging && this.phase !== 'intro') this.tryBurst();
     switch (this.phase) {
       case 'intro':
         if (--this.timer <= 0 || (this.timer < TURN_INTRO - 20 && input.pressed.size && !this.handover)) {
@@ -1130,6 +1149,39 @@ export class World {
     this.settleT = 0;
   }
 
+  /** Bursts the active team's cluster, if one is flying. */
+  tryBurst() {
+    const p = this.projs.find((q) => q.kind === 'cluster' && q.split && !q.rest && this.moles.find((m) => m.id === q.owner)?.team === this.activeTeam);
+    if (!p) return false;
+    this.projs = this.projs.filter((q) => q !== p);
+    this.explosions.push({ x: p.x, y: p.y, r: 10, t: 0, scale: 0.35 });
+    this.events.push('smallboom');
+    this.spawnBomblets(p, true);
+    return true;
+  }
+
+  private spawnBomblets(p: Proj, inFlight: boolean) {
+    for (const [vx, vy] of bombletVelocities(p, inFlight, this.rng)) {
+      this.projs.push({
+        kind: 'bomblet',
+        x: p.x,
+        y: p.y - 2,
+        vx,
+        vy,
+        fuse: -1,
+        radius: BOMBLET_R,
+        damage: BOMBLET_DMG,
+        bounce: false,
+        wind: false,
+        owner: p.owner,
+        age: 10,
+        rest: false,
+        split: false,
+        spin: 0,
+      });
+    }
+  }
+
   // ---------- projectiles ----------
 
   moleAt(x: number, y: number, except = -1) {
@@ -1212,29 +1264,7 @@ export class World {
       const owner = this.moles.find((m) => m.id === p.owner);
       const cause = p.kind === 'bomb' ? 'airstrike' : p.kind === 'bomblet' ? 'cluster' : p.kind;
       this.explode(p.x, p.y, p.radius, p.damage, owner?.team ?? -1, -1, p.radius / 42, cause);
-      if (p.split) {
-        for (let k = 0; k < 5; k++) {
-          const a = -Math.PI / 2 + (k - 2) * 0.45 + (this.rng() - 0.5) * 0.25;
-          const s = 3 + this.rng() * 2.5;
-          this.projs.push({
-            kind: 'bomblet',
-            x: p.x,
-            y: p.y - 2,
-            vx: Math.cos(a) * s,
-            vy: Math.sin(a) * s,
-            fuse: -1,
-            radius: BOMBLET_R,
-            damage: BOMBLET_DMG,
-            bounce: false,
-            wind: false,
-            owner: p.owner,
-            age: 10,
-            rest: false,
-            split: false,
-            spin: 0,
-          });
-        }
-      }
+      if (p.split) this.spawnBomblets(p, false);
     }
     // Bomblets pushed while iterating are in this.projs beyond the old length; keep them too.
     for (const p of this.projs) if (p.kind === 'bomblet' && !keep.includes(p) && p.age === 10) keep.push(p);

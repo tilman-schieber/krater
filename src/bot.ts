@@ -3,7 +3,7 @@
 // airstrike), scores each by the damage it would do to the enemy minus what it would do to its
 // own side, and takes the best. If nothing is worth firing, it walks toward the nearest enemy
 // and looks again. Skill blurs the chosen angle and power and thins the search.
-import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS, BOMBLET_R, BOMBLET_DMG } from './world';
+import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS, BOMBLET_R, BOMBLET_DMG, bombletVelocities } from './world';
 import { WeaponId, weapon } from './weapons';
 
 interface Shot {
@@ -16,6 +16,8 @@ interface Shot {
   score: number;
   /** For the airstrike: where to put the cursor. */
   cursor?: { x: number; y: number };
+  /** For the cluster: frames after launch to burst it, if in flight is better than on impact. */
+  burstAt?: number;
 }
 
 type Plan =
@@ -169,8 +171,8 @@ export class Bot {
         for (let aim = -1.2; aim <= 1.5; aim += angleStep)
           for (let power = 0.15; power <= 1.001; power += powerStep)
             for (const fuse of fuses) {
-              const score = this.simulate(w, m, wp.id, facing, aim, power, fuse);
-              if (score > 0) push({ weapon: id, facing, aim, power, fuse, score });
+              const { score, burstAt } = this.simulate(w, m, wp.id, facing, aim, power, fuse);
+              if (score > 0) push({ weapon: id, facing, aim, power, fuse, score, burstAt });
             }
       }
     }
@@ -225,8 +227,24 @@ export class Bot {
     return null;
   }
 
-  /** Flies a shot on the world's code and scores where it ends. */
-  private simulate(w: World, m: Mole, id: WeaponId, facing: 1 | -1, aim: number, power: number, fuse: number) {
+  /** A cluster's bomblets from here, scored. */
+  private scoreBomblets(w: World, p: Proj, inFlight: boolean, m: Mole) {
+    let s = 0;
+    let j = 0.5;
+    for (const [vx, vy] of bombletVelocities(p, inFlight, () => (j = j === 0.5 ? 0.3 : 0.5))) {
+      const b: Proj = { ...p, kind: 'bomblet', vx, vy, fuse: -1, radius: BOMBLET_R, damage: BOMBLET_DMG, bounce: false, split: false, age: 10, y: p.y - 2 };
+      for (let g = 0; g < 240; g++) {
+        const rb = w.flyStep(b);
+        if (rb === 'fly') continue;
+        if (rb === 'explode') s += this.scoreBlast(w, b.x, b.y, BOMBLET_R, BOMBLET_DMG, m);
+        break;
+      }
+    }
+    return s;
+  }
+
+  /** Flies a shot on the world's code and scores where it ends (and, for a cluster, the best burst). */
+  private simulate(w: World, m: Mole, id: WeaponId, facing: 1 | -1, aim: number, power: number, fuse: number): { score: number; burstAt?: number } {
     const wp = weapon(id);
     const speed = 3 + 11 * power;
     const p: Proj = {
@@ -246,26 +264,27 @@ export class Bot {
       split: id === 'cluster',
       spin: 0,
     };
+    // A cluster can be burst in flight: try that every few frames on the way down near an enemy.
+    let bestBurst = -Infinity, burstAt: number | undefined;
+    const enemies = this.enemies(w);
     for (let f = 0; f < SIM_FRAMES; f++) {
       const r = w.flyStep(p);
-      if (r === 'fly') continue;
-      if (r !== 'explode') return -1;
-      let s = this.scoreBlast(w, p.x, p.y, p.radius, p.damage, m);
-      if (p.split) {
-        for (let k = 0; k < 5; k++) {
-          const a = -Math.PI / 2 + (k - 2) * 0.45;
-          const b: Proj = { ...p, kind: 'bomblet', vx: Math.cos(a) * 4.2, vy: Math.sin(a) * 4.2, fuse: -1, radius: BOMBLET_R, damage: BOMBLET_DMG, bounce: false, split: false, age: 10, y: p.y - 2 };
-          for (let g = 0; g < 200; g++) {
-            const rb = w.flyStep(b);
-            if (rb === 'fly') continue;
-            if (rb === 'explode') s += this.scoreBlast(w, b.x, b.y, BOMBLET_R, BOMBLET_DMG, m);
-            break;
+      if (r === 'fly') {
+        if (p.split && f % 5 === 0 && p.vy > 0 && enemies.some((e) => Math.abs(e.x - p.x) < 220 && e.y > p.y)) {
+          const s = this.scoreBomblets(w, { ...p }, true, m);
+          if (s > bestBurst) {
+            bestBurst = s;
+            burstAt = f + 1;
           }
         }
+        continue;
       }
-      return s;
+      if (r !== 'explode') return { score: bestBurst > 0 ? bestBurst : -1, burstAt: bestBurst > 0 ? burstAt : undefined };
+      let s = this.scoreBlast(w, p.x, p.y, p.radius, p.damage, m);
+      if (p.split) s += this.scoreBomblets(w, p, false, m);
+      return bestBurst > s ? { score: bestBurst, burstAt } : { score: s };
     }
-    return -1;
+    return { score: -1 };
   }
 
   // ---------- doing ----------
@@ -321,6 +340,11 @@ export class Bot {
         break;
       }
       case 'wait':
+        // A cluster bursts at the frame the simulation liked.
+        if (s.burstAt !== undefined && p.t >= s.burstAt) {
+          input.pressed.add('fire');
+          s.burstAt = undefined;
+        }
         // The shotgun's second barrel: aim again.
         if (s.weapon === 'shotgun' && w.shotsLeft > 0 && p.t > 25) {
           const again = this.bestShot(w, m);

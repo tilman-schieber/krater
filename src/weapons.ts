@@ -67,7 +67,7 @@ const W = (w: Partial<Weapon> & Pick<Weapon, 'id' | 'name' | 'use' | 'blurb'>): 
 export const WEAPONS: Weapon[] = [
   W({ id: 'bazooka', name: 'BAZOOKA', use: 'charge', radius: 42, damage: 50, wind: true, blurb: 'BLOWS UP ON CONTACT. THE WIND BENDS IT.' }),
   W({ id: 'grenade', name: 'GRENADE', use: 'charge', radius: 42, damage: 50, bounce: true, blurb: 'BOUNCES, THEN GOES OFF. 1-5 SETS THE FUSE.' }),
-  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 2, radius: 26, damage: 20, bounce: true, blurb: 'BURSTS INTO FIVE BOMBLETS.' }),
+  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 2, radius: 26, damage: 20, blurb: 'FIRE AGAIN IN FLIGHT: IT RAINS FIVE BOMBLETS.' }),
   W({ id: 'shotgun', name: 'SHOTGUN', use: 'instant', radius: 16, damage: 30, shots: 2, retreat: 0, blurb: 'TWO STRAIGHT SHOTS. AIM AGAIN BETWEEN THEM.' }),
   W({ id: 'dynamite', name: 'DYNAMITE', use: 'place', ammo: 2, radius: 72, damage: 75, fuse: 5, retreat: 5, blurb: 'DROP IT AND RUN. FIVE SECONDS.' }),
   W({ id: 'airstrike', name: 'AIRSTRIKE', use: 'cursor', ammo: 1, radius: 26, damage: 24, wind: true, blurb: 'FIVE BOMBS FROM ABOVE. MARK THE SPOT.' }),
