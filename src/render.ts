@@ -24,9 +24,18 @@ const textShadowC = (ctx: Ctx, s: string, cx: number, y: number, scale: number, 
 
 // ---------- the scene ----------
 
-function backdrop(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: number) {
+/** A view on the map: camera top left, size in map pixels, and the zoom it is drawn at. */
+export interface View {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  zoom: number;
+}
+
+function backdrop(ctx: Ctx, w: World, v: View, frame: number) {
   const th = w.theme;
-  const farBottom = w.waterY - 60 - cam.y * 0.4 - (w.h - H) * 0.6;
+  const farBottom = w.waterY - 60 - v.y * 0.4 - (w.h - v.h) * 0.6;
   const far = spr(th.far);
   const farTop = farBottom - far.height;
   // Sky down to the far layer, which carries its own sky colour at the top.
@@ -34,14 +43,15 @@ function backdrop(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: numb
   g.addColorStop(0, th.skyTop);
   g.addColorStop(1, th.skyBottom);
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, v.w, v.h);
   // Clouds.
   if (th.cloud) {
     ctx.fillStyle = th.cloud;
     ctx.globalAlpha = 0.8;
+    const span = v.w + 300;
     for (let k = 0; k < 7; k++) {
-      const cx = (((k * 613 + frame * 0.15 - cam.x * 0.15) % (W + 300)) + W + 300) % (W + 300) - 150;
-      const cy = 30 + ((k * 97) % 120) - cam.y * 0.1 - 24;
+      const cx = ((((k * 613 + frame * 0.15 - v.x * 0.15) % span) + span) % span) - 150;
+      const cy = 30 + ((k * 97) % 120) - v.y * 0.1 - 24;
       const s = 1 + (k % 3) * 0.4;
       ctx.fillRect(cx - 24 * s, cy, 48 * s, 8 * s);
       ctx.fillRect(cx - 14 * s, cy - 6 * s, 28 * s, 6 * s);
@@ -51,20 +61,20 @@ function backdrop(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: numb
   }
   const tile = (s: Sprite, bottom: number, par: number) => {
     const y = Math.round(bottom - s.height);
-    const off = ((-cam.x * par) % s.width) - s.width;
-    for (let x = off; x < W; x += s.width) ctx.drawImage(s, Math.round(x), y);
+    const off = ((-v.x * par) % s.width) - s.width;
+    for (let x = off; x < v.w; x += s.width) ctx.drawImage(s, Math.round(x), y);
   };
   tile(far, farBottom, 0.25);
   ctx.fillStyle = th.farBottom;
-  if (farBottom < H) ctx.fillRect(0, Math.round(farBottom) - 1, W, H - farBottom + 1);
+  if (farBottom < v.h) ctx.fillRect(0, Math.round(farBottom) - 1, v.w, v.h - farBottom + 1);
   const near = spr(th.near);
-  tile(near, w.waterY + 16 - cam.y * 0.7 - (w.h - H) * 0.3, 0.5);
+  tile(near, w.waterY + 16 - v.y * 0.7 - (w.h - v.h) * 0.3, 0.5);
 }
 
-function drawWater(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: number) {
+function drawWater(ctx: Ctx, w: World, v: View, frame: number) {
   const th = w.theme;
-  const top = w.waterY - cam.y;
-  if (top > H) return;
+  const top = w.waterY - v.y;
+  if (top > v.h) return;
   const bands: [string, number, number, number][] = [
     [th.water, 0, 0.55, 1],
     [th.waterDeep, 7, 0.55, -1.3],
@@ -74,20 +84,20 @@ function drawWater(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: num
     ctx.globalAlpha = alpha;
     ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(0, H);
-    for (let x = 0; x <= W; x += 8) {
-      const y = top + dy + Math.sin((x + cam.x) * 0.03 + frame * 0.04 * dir) * 2 + Math.sin((x + cam.x) * 0.011 - frame * 0.02 * dir) * 2;
+    ctx.moveTo(0, v.h);
+    for (let x = 0; x <= v.w; x += 8) {
+      const y = top + dy + Math.sin((x + v.x) * 0.03 + frame * 0.04 * dir) * 2 + Math.sin((x + v.x) * 0.011 - frame * 0.02 * dir) * 2;
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(W, H);
+    ctx.lineTo(v.w, v.h);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
   // Foam on the crests.
   ctx.fillStyle = th.foam;
-  for (let x = 0; x <= W; x += 8) {
-    const y = top + Math.sin((x + cam.x) * 0.03 + frame * 0.04) * 2 + Math.sin((x + cam.x) * 0.011 - frame * 0.02) * 2;
-    if (Math.sin((x + cam.x) * 0.05 + frame * 0.03) > 0.6) ctx.fillRect(x, Math.round(y), 4, 1);
+  for (let x = 0; x <= v.w; x += 8) {
+    const y = top + Math.sin((x + v.x) * 0.03 + frame * 0.04) * 2 + Math.sin((x + v.x) * 0.011 - frame * 0.02) * 2;
+    if (Math.sin((x + v.x) * 0.05 + frame * 0.03) > 0.6) ctx.fillRect(x, Math.round(y), 4, 1);
   }
 }
 
@@ -120,10 +130,10 @@ function moleSprite(m: Mole, w: World): Sprite {
   return s;
 }
 
-function drawMole(ctx: Ctx, w: World, m: Mole, cam: { x: number; y: number }, active: boolean) {
+function drawMole(ctx: Ctx, w: World, m: Mole, v: View, active: boolean) {
   if (!m.alive && m.drowning <= 0) return;
-  const sx = m.x - cam.x, sy = m.y - cam.y;
-  if (sx < -40 || sx > W + 40 || sy < -60 || sy > H + 40) return;
+  const sx = m.x - v.x, sy = m.y - v.y;
+  if (sx < -40 || sx > v.w + 40 || sy < -60 || sy > v.h + 40) return;
   const s = moleSprite(m, w);
   // Rope.
   if (m.rope) {
@@ -131,7 +141,7 @@ function drawMole(ctx: Ctx, w: World, m: Mole, cam: { x: number; y: number }, ac
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(Math.round(sx) + 0.5, Math.round(sy - MID) + 0.5);
-    ctx.lineTo(Math.round(m.rope.ax - cam.x) + 0.5, Math.round(m.rope.ay - cam.y) + 0.5);
+    ctx.lineTo(Math.round(m.rope.ax - v.x) + 0.5, Math.round(m.rope.ay - v.y) + 0.5);
     ctx.stroke();
   }
   // The weapon in hand, before the mole so the mole's arm overlaps it a little.
@@ -145,37 +155,58 @@ function drawMole(ctx: Ctx, w: World, m: Mole, cam: { x: number; y: number }, ac
     drawAt(ctx, r, sx + m.facing * 6, sy - MID - 2);
   }
   ctx.drawImage(s, Math.round(sx - s.width / 2), Math.round(sy - FEET - (s.height - 40)));
-  if (!m.alive) return;
-  // Name and health.
-  const col = TEAM_COLORS[m.team];
-  const name = m.name;
-  const ny = Math.round(sy - FEET - 12);
-  const hp = String(m.hp);
-  drawTextShadow(ctx, name, Math.round(sx - textWidth(name) / 2), ny, col);
-  const bw = textWidth(hp) + 4;
-  ctx.fillStyle = '#000';
-  ctx.fillRect(Math.round(sx - bw / 2) - 1, ny - 11, bw + 2, 10);
-  ctx.fillStyle = col;
-  ctx.fillRect(Math.round(sx - bw / 2), ny - 10, bw, 8);
-  drawText(ctx, hp, Math.round(sx - bw / 2) + 2, ny - 9, '#000');
-  // The active mole gets a bobbing arrow.
-  if (active && (w.phase === 'move' || w.phase === 'intro')) {
-    const ay = ny - 18 - Math.round(Math.abs(Math.sin(w.frame * 0.1)) * 4);
+}
+
+/** Names, health and the turn arrow, drawn unscaled over the scene so they stay readable. */
+function drawLabels(ctx: Ctx, w: World, v: View, active: Mole | null) {
+  const z = v.zoom;
+  for (const m of w.moles) {
+    if (!m.alive) continue;
+    const sx = (m.x - v.x) * z, sy = (m.y - v.y) * z;
+    if (sx < -40 || sx > W + 40 || sy < -60 || sy > H + 60) continue;
+    const col = TEAM_COLORS[m.team];
+    const name = m.name;
+    const ny = Math.round(sy - (FEET + 12) * z);
+    const hp = String(m.hp);
+    drawTextShadow(ctx, name, Math.round(sx - textWidth(name) / 2), ny, col);
+    const bw = textWidth(hp) + 4;
     ctx.fillStyle = '#000';
-    ctx.fillRect(Math.round(sx) - 5, ay - 7, 11, 2);
-    for (let k = 0; k < 5; k++) ctx.fillRect(Math.round(sx) - 5 + k, ay - 5 + k, 11 - 2 * k, 1);
-    ctx.fillStyle = WHITE;
-    ctx.fillRect(Math.round(sx) - 4, ay - 6, 9, 1);
-    for (let k = 0; k < 4; k++) ctx.fillRect(Math.round(sx) - 4 + k, ay - 5 + k, 9 - 2 * k, 1);
+    ctx.fillRect(Math.round(sx - bw / 2) - 1, ny - 11, bw + 2, 10);
+    ctx.fillStyle = col;
+    ctx.fillRect(Math.round(sx - bw / 2), ny - 10, bw, 8);
+    drawText(ctx, hp, Math.round(sx - bw / 2) + 2, ny - 9, '#000');
+    // The active mole gets a bobbing arrow.
+    if (m === active && (w.phase === 'move' || w.phase === 'intro')) {
+      const ay = ny - 18 - Math.round(Math.abs(Math.sin(w.frame * 0.1)) * 4);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(Math.round(sx) - 5, ay - 7, 11, 2);
+      for (let k = 0; k < 5; k++) ctx.fillRect(Math.round(sx) - 5 + k, ay - 5 + k, 11 - 2 * k, 1);
+      ctx.fillStyle = WHITE;
+      ctx.fillRect(Math.round(sx) - 4, ay - 6, 9, 1);
+      for (let k = 0; k < 4; k++) ctx.fillRect(Math.round(sx) - 4 + k, ay - 5 + k, 9 - 2 * k, 1);
+    }
+  }
+  // Fuse seconds over grenades, damage numbers.
+  for (const p of w.projs) {
+    if (p.fuse > 0 && p.kind !== 'bomblet') {
+      const secs = String(Math.ceil(p.fuse / FPS));
+      drawTextShadow(ctx, secs, Math.round((p.x - v.x) * z - 2), Math.round((p.y - v.y) * z) - 20, WHITE);
+    }
+  }
+  for (const f of w.floats) {
+    const y = (f.y - v.y) * z - f.t * 0.4;
+    ctx.globalAlpha = f.t > 45 ? 1 - (f.t - 45) / 25 : 1;
+    textShadowC(ctx, f.text, (f.x - v.x) * z, Math.round(y), 1, f.color);
+    ctx.globalAlpha = 1;
   }
 }
 
-function drawAim(ctx: Ctx, w: World, cam: { x: number; y: number }) {
+function drawAim(ctx: Ctx, w: World, v: View) {
   const m = w.activeMole;
   if (!m || !w.controllable || w.phase !== 'move' || w.panel) return;
   const wp = w.weapon;
   if (wp.use === 'cursor' || wp.id === 'skip' || w.shotsLeft <= 0) return;
-  const sx = m.x - cam.x, sy = m.y - MID - cam.y;
+  const sx = m.x - v.x, sy = m.y - MID - v.y;
   const dx = Math.cos(m.aim) * m.facing, dy = -Math.sin(m.aim);
   if (wp.use === 'charge' || wp.id === 'shotgun' || wp.id === 'rope') {
     // Crosshair out along the aim.
@@ -194,10 +225,10 @@ function drawAim(ctx: Ctx, w: World, cam: { x: number; y: number }) {
   }
 }
 
-function drawCursor(ctx: Ctx, w: World, cam: { x: number; y: number }) {
+function drawCursor(ctx: Ctx, w: World, v: View) {
   if (!w.cursorMode || !w.controllable) return;
   const wp = w.weapon;
-  const cx = w.cursor.x - cam.x, cy = w.cursor.y - cam.y;
+  const cx = w.cursor.x - v.x, cy = w.cursor.y - v.y;
   if (wp.id === 'girder') {
     const a = (w.girderAngle * Math.PI) / 4;
     const m = w.activeMole!;
@@ -229,12 +260,12 @@ function drawCursor(ctx: Ctx, w: World, cam: { x: number; y: number }) {
   }
 }
 
-function drawProj(ctx: Ctx, p: Proj, cam: { x: number; y: number }, frame: number) {
-  const sx = p.x - cam.x, sy = p.y - cam.y;
+function drawProj(ctx: Ctx, p: Proj, v: View, frame: number) {
+  const sx = p.x - v.x, sy = p.y - v.y;
   if (sy < -40) {
     // Off the top: an arrow where it is.
     ctx.fillStyle = WHITE;
-    const x = Math.round(Math.max(6, Math.min(W - 6, sx)));
+    const x = Math.round(Math.max(6, Math.min(v.w - 6, sx)));
     for (let k = 0; k < 5; k++) ctx.fillRect(x - k, 4 + k, 1 + 2 * k, 1);
     return;
   }
@@ -267,35 +298,33 @@ function drawProj(ctx: Ctx, p: Proj, cam: { x: number; y: number }, frame: numbe
     default:
       disc(ctx, sx, sy, 3, WHITE);
   }
-  // Fuse seconds over grenades.
-  if (p.fuse > 0 && p.kind !== 'bomblet') {
-    const secs = String(Math.ceil(p.fuse / FPS));
-    drawTextShadow(ctx, secs, Math.round(sx - 2), Math.round(sy) - 20, WHITE);
-  }
 }
 
-export function drawScene(ctx: Ctx, w: World, cam: { x: number; y: number }, frame: number, hud: boolean) {
-  backdrop(ctx, w, cam, frame);
-  // Terrain: the part on screen.
-  const sx = Math.max(0, cam.x), sy = Math.max(0, cam.y);
-  const dx = sx - cam.x, dy = sy - cam.y;
-  const cw = Math.min(w.w - sx, W - dx), ch = Math.min(w.h - sy, H - dy);
+/** The battle through the view; `hud` adds the aim, the mark and the labels. */
+export function drawScene(ctx: Ctx, w: World, v: View, frame: number, hud: boolean) {
+  ctx.save();
+  ctx.scale(v.zoom, v.zoom);
+  backdrop(ctx, w, v, frame);
+  // Terrain: the part in view.
+  const sx = Math.max(0, v.x), sy = Math.max(0, v.y);
+  const dx = sx - v.x, dy = sy - v.y;
+  const cw = Math.min(w.w - sx, v.w - dx), ch = Math.min(w.h - sy, v.h - dy);
   if (cw > 0 && ch > 0) ctx.drawImage(w.terrain.canvas, sx, sy, cw, ch, Math.round(dx), Math.round(dy), cw, ch);
-  for (const g of w.graves) drawAt(ctx, teamed(spr('items/grave'), 'items/grave', g.team), g.x - cam.x, g.y - cam.y - 14);
+  for (const g of w.graves) drawAt(ctx, teamed(spr('items/grave'), 'items/grave', g.team), g.x - v.x, g.y - v.y - 14);
   for (const c of w.crates) {
-    drawAt(ctx, spr(c.kind === 'health' ? 'items/crate_health' : 'items/crate_weapon'), c.x - cam.x, c.y - cam.y - 14);
-    if (!c.landed) drawAt(ctx, spr('items/parachute'), c.x - cam.x, c.y - cam.y - 42);
+    drawAt(ctx, spr(c.kind === 'health' ? 'items/crate_health' : 'items/crate_weapon'), c.x - v.x, c.y - v.y - 14);
+    if (!c.landed) drawAt(ctx, spr('items/parachute'), c.x - v.x, c.y - v.y - 42);
   }
-  for (const m of w.moles) drawMole(ctx, w, m, cam, m === w.activeMole && hud);
+  for (const m of w.moles) drawMole(ctx, w, m, v, m === w.activeMole && hud);
   if (hud) {
-    drawAim(ctx, w, cam);
-    drawCursor(ctx, w, cam);
+    drawAim(ctx, w, v);
+    drawCursor(ctx, w, v);
   }
-  for (const p of w.projs) drawProj(ctx, p, cam, frame);
+  for (const p of w.projs) drawProj(ctx, p, v, frame);
   for (const pl of w.planes) {
     const s = spr('items/plane');
     const img = pl.dir > 0 ? s : flipped(s, 'items/plane');
-    ctx.drawImage(img, Math.round(pl.x - cam.x - 32), Math.round(pl.y - cam.y - 32), 64, 64);
+    ctx.drawImage(img, Math.round(pl.x - v.x - 32), Math.round(pl.y - v.y - 32), 64, 64);
   }
   // Particles behind the explosions.
   for (const p of w.particles) {
@@ -303,11 +332,11 @@ export function drawScene(ctx: Ctx, w: World, cam: { x: number; y: number }, fra
       ctx.globalAlpha = Math.min(0.6, p.life / 30);
       ctx.fillStyle = '#c8c8c8';
       const s = 2 + Math.floor((35 - p.life) / 10);
-      ctx.fillRect(Math.round(p.x - cam.x - s / 2), Math.round(p.y - cam.y - s / 2), s, s);
+      ctx.fillRect(Math.round(p.x - v.x - s / 2), Math.round(p.y - v.y - s / 2), s, s);
       ctx.globalAlpha = 1;
     } else {
       ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(p.x - cam.x), Math.round(p.y - cam.y), p.size, p.size);
+      ctx.fillRect(Math.round(p.x - v.x), Math.round(p.y - v.y), p.size, p.size);
     }
   }
   const ex = frames('fx/explosion');
@@ -316,17 +345,13 @@ export function drawScene(ctx: Ctx, w: World, cam: { x: number; y: number }, fra
     if (i >= ex.length) continue;
     const s = ex[i];
     const size = Math.round(64 * e.scale);
-    if (e.t < 3) disc(ctx, e.x - cam.x, e.y - cam.y, e.r * 0.8, WHITE);
+    if (e.t < 3) disc(ctx, e.x - v.x, e.y - v.y, e.r * 0.8, WHITE);
     // The effect's anchor is near its top left; centre the blast on its fireball.
-    ctx.drawImage(s, Math.round(e.x - cam.x - size * 0.5), Math.round(e.y - cam.y - size * 0.55), size, size);
+    ctx.drawImage(s, Math.round(e.x - v.x - size * 0.5), Math.round(e.y - v.y - size * 0.55), size, size);
   }
-  drawWater(ctx, w, cam, frame);
-  for (const f of w.floats) {
-    const y = f.y - cam.y - f.t * 0.4;
-    ctx.globalAlpha = f.t > 45 ? 1 - (f.t - 45) / 25 : 1;
-    textShadowC(ctx, f.text, f.x - cam.x, Math.round(y), 1, f.color);
-    ctx.globalAlpha = 1;
-  }
+  drawWater(ctx, w, v, frame);
+  ctx.restore();
+  if (hud) drawLabels(ctx, w, v, w.activeMole);
 }
 
 // ---------- HUD ----------
@@ -471,7 +496,7 @@ function drawLogo(ctx: Ctx, frame: number, y: number) {
 
 function renderTitle(ctx: Ctx, game: Game) {
   const a = game.attract!;
-  drawScene(ctx, a, game.cam, game.frame, false);
+  drawScene(ctx, a, game.view(), game.frame, false);
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(0, 0, W, H);
   drawLogo(ctx, game.frame, 14);
@@ -519,12 +544,12 @@ function renderTitle(ctx: Ctx, game: Game) {
   const humans = s.teams.filter((k) => k === 1).length;
   const hint = s.teams.filter((k) => k > 0).length < 2 ? 'TURN ON AT LEAST TWO TEAMS' : humans > 1 ? 'HUMANS SHARE THE KEYBOARD, TURN BY TURN' : 'ARROWS CHOOSE, ENTER STARTS';
   if (game.frame % 60 < 45) drawTextCentered(ctx, hint, W / 2, H - 50, LIGHT);
-  drawTextCentered(ctx, 'ESC PAUSES   M MUSIC   H HELP', W / 2, H - 36, GREY);
+  drawTextCentered(ctx, 'ESC PAUSES   Z ZOOMS   M MUSIC   H HELP', W / 2, H - 36, GREY);
 }
 
 function renderHelp(ctx: Ctx, game: Game) {
   const a = game.attract!;
-  drawScene(ctx, a, game.cam, game.frame, false);
+  drawScene(ctx, a, game.view(), game.frame, false);
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(0, 0, W, H);
   const page = HELP_PAGES[game.helpPage];
@@ -574,12 +599,12 @@ export function render(ctx: Ctx, game: Game) {
       return;
   }
   const w = game.world!;
-  const cam = { x: Math.round(game.cam.x), y: Math.round(game.cam.y) };
+  const v = game.view();
   if (w.shake > 0) {
-    cam.x += Math.round((Math.random() - 0.5) * w.shake);
-    cam.y += Math.round((Math.random() - 0.5) * w.shake);
+    v.x += Math.round((Math.random() - 0.5) * w.shake);
+    v.y += Math.round((Math.random() - 0.5) * w.shake);
   }
-  drawScene(ctx, w, cam, game.frame, game.phase === 'play');
+  drawScene(ctx, w, v, game.frame, game.phase === 'play');
   if (game.phase === 'play') drawHud(ctx, game, w);
   if (game.phase === 'over') renderOver(ctx, game, w);
   if (game.paused) {
@@ -588,5 +613,5 @@ export function render(ctx: Ctx, game: Game) {
     textC(ctx, 'PAUSED', W / 2, H / 2 - 20, 3, WHITE);
     drawTextCentered(ctx, 'ESC CONTINUES   BACKSPACE QUITS', W / 2, H / 2 + 16, LIGHT);
   }
-  if (game.debug) drawText(ctx, `CAM ${cam.x},${cam.y} PH ${w.phase} T${w.turn}`, 8, H - 60, GOLD);
+  if (game.debug) drawText(ctx, `CAM ${v.x},${v.y} Z${v.zoom} PH ${w.phase} T${w.turn}`, 8, H - 60, GOLD);
 }

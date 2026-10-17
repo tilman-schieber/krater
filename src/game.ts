@@ -10,6 +10,7 @@ import { HELP_PAGES } from './help';
 import { WEAPON_ORDER } from './world';
 import { PANEL_COLS } from './weapons';
 import { music, play, sfx } from './audio';
+import type { View } from './render';
 
 export const W = 640;
 export const H = 360;
@@ -66,8 +67,14 @@ export class Game {
   attractBots: Bot[] = [];
   /** Camera: the map pixel at the screen's top left. */
   cam = { x: 0, y: 0 };
+  /** Zoom levels, cycled with Z or the wheel; the view is W/zoom by H/zoom map pixels. */
+  static readonly ZOOMS = [1, 2 / 3, 0.5];
+  zoomIndex = 0;
   /** The player has dragged the view; stop following until something happens. */
   panned = false;
+  /** Where the mouse is over the screen, for scrolling at the edges; null when it left. */
+  pointerAt: { x: number; y: number } | null = null;
+  dragging = false;
   /** Frames the winner card has been up. */
   overT = 0;
   helpPage = 0;
@@ -84,6 +91,29 @@ export class Game {
 
   get isPlaying() {
     return this.phase === 'play' && !this.paused;
+  }
+
+  get zoom() {
+    return Game.ZOOMS[this.zoomIndex];
+  }
+
+  /** The view on the map: camera, size in map pixels, zoom. */
+  view(): View {
+    const z = this.zoom;
+    return { x: Math.round(this.cam.x), y: Math.round(this.cam.y), w: Math.ceil(W / z), h: Math.ceil(H / z), zoom: z };
+  }
+
+  /** Steps the zoom (by +1 out, -1 in, or to the next level), keeping the view's centre. */
+  setZoom(index: number) {
+    const n = Game.ZOOMS.length;
+    const next = ((index % n) + n) % n;
+    if (next === this.zoomIndex) return;
+    const before = this.zoom, after = Game.ZOOMS[next];
+    this.cam.x += (W / before - W / after) / 2;
+    this.cam.y += (H / before - H / after) / 2;
+    this.zoomIndex = next;
+    this.clampCamera(this.shown);
+    sfx.select();
   }
 
   /** The world on screen: the battle, or the one behind the title. */
@@ -182,6 +212,7 @@ export class Game {
       if (a.phase === 'over' && a.frame % 240 === 0) this.startAttract();
     }
     if (input.pressed.has('mute')) this.toggleMusic();
+    if (input.pressed.has('zoom')) this.setZoom(this.zoomIndex + 1);
   }
 
   private emptyInput(): Input {
@@ -282,11 +313,19 @@ export class Game {
       worldInput = bot.think(w);
       // Humans can still skip the banner.
       if (input.pressed.has('start')) worldInput.pressed.add('start');
-    } else if (input.pointer?.click && w.panel) {
-      // A click on the weapon panel picks that weapon.
-      const i = this.panelHit(input.pointer.x - this.cam.x, input.pointer.y - this.cam.y);
-      if (i >= 0) w.pickWeapon(WEAPON_ORDER[i]);
-      worldInput = { ...input, pointer: undefined };
+    } else {
+      // The pointer comes in screen coordinates; the world wants map coordinates.
+      const p = input.pointer;
+      if (p && w.panel) {
+        if (p.click) {
+          const i = this.panelHit(p.x, p.y);
+          if (i >= 0) w.pickWeapon(WEAPON_ORDER[i]);
+        }
+        worldInput = { ...input, pointer: undefined };
+      } else if (p) worldInput = { ...input, pointer: { ...this.toMap(p.x, p.y), click: p.click } };
+      // Looking around: the mouse at the screen's edge scrolls, and in cursor mode the arrows
+      // take the view along with the mark.
+      this.scroll(input);
     }
     w.step(worldInput);
     this.events.push(...w.events);
@@ -304,6 +343,23 @@ export class Game {
     this.updateCamera(w);
   }
 
+  private scroll(input: Input) {
+    const w = this.world!;
+    const EDGE = 14, SPEED = 6;
+    if (this.pointerAt && !this.dragging && !w.panel) {
+      const { x, y } = this.pointerAt;
+      const dx = x < EDGE ? SPEED : x > W - EDGE ? -SPEED : 0;
+      const dy = y < EDGE ? SPEED : y > H - EDGE ? -SPEED : 0;
+      if (dx || dy) this.pan(dx, dy);
+    }
+    if (w.cursorMode && w.controllable) {
+      const girder = w.weapon.id === 'girder';
+      const dx = (input.held.has('left') ? 4 : 0) - (input.held.has('right') ? 4 : 0);
+      const dy = girder ? 0 : (input.held.has('up') ? 4 : 0) - (input.held.has('down') ? 4 : 0);
+      if (dx || dy) this.pan(dx, dy);
+    }
+  }
+
   /** Index into WEAPON_ORDER of the panel cell at a screen point, or -1. */
   panelHit(sx: number, sy: number) {
     const col = Math.floor((sx - PANEL.x - 8) / PANEL.cell), row = Math.floor((sy - PANEL.y - 8) / PANEL.cell);
@@ -316,8 +372,8 @@ export class Game {
 
   /** The player dragged the view by (dx, dy) screen pixels. */
   pan(dx: number, dy: number) {
-    this.cam.x -= dx;
-    this.cam.y -= dy;
+    this.cam.x -= dx / this.zoom;
+    this.cam.y -= dy / this.zoom;
     this.panned = true;
     this.clampCamera(this.shown);
   }
@@ -332,7 +388,7 @@ export class Game {
       this.lastFocus = { x: f.x, y: f.y };
     }
     if (f && !this.panned) {
-      const tx = f.x - W / 2, ty = f.y - H / 2;
+      const tx = f.x - W / this.zoom / 2, ty = f.y - H / this.zoom / 2;
       const k = 0.1;
       this.cam.x += (tx - this.cam.x) * k;
       this.cam.y += (ty - this.cam.y) * k;
@@ -342,12 +398,14 @@ export class Game {
 
   private clampCamera(w: World | null) {
     if (!w) return;
-    this.cam.x = Math.max(0, Math.min(w.w - W, this.cam.x));
-    this.cam.y = Math.max(-240, Math.min(w.h - H, this.cam.y));
+    const vw = W / this.zoom, vh = H / this.zoom;
+    // A view wider than the map sits centred on it.
+    this.cam.x = vw >= w.w ? (w.w - vw) / 2 : Math.max(0, Math.min(w.w - vw, this.cam.x));
+    this.cam.y = Math.max(-240 - (vh - H), Math.min(w.h - vh, this.cam.y));
   }
 
   /** Screen to map coordinates. */
   toMap(sx: number, sy: number) {
-    return { x: sx + this.cam.x, y: sy + this.cam.y };
+    return { x: sx / this.zoom + this.cam.x, y: sy / this.zoom + this.cam.y };
   }
 }

@@ -17,6 +17,7 @@ const TOUCH_ROWS: TouchButton<Action>[][] = [
     { id: 'right', label: '▶', a: 'right' },
     { id: 'up', label: '▲', a: 'up' },
     { id: 'down', label: '▼', a: 'down' },
+    { id: 'zoom', label: '⊖', a: 'zoom' },
     { id: 'music', label: '♪', a: 'mute' },
   ],
   [
@@ -60,6 +61,7 @@ const KEYS: Record<string, Action[]> = {
   escape: ['back'],
   p: ['back'],
   m: ['mute'],
+  z: ['zoom'],
 };
 
 const game = new Game();
@@ -107,6 +109,8 @@ function onTouch(b: TouchButton<Action>, down: boolean) {
 
 // ---------- pointer: drag to look around, click to place ----------
 
+// The pointer is handed to the game in screen coordinates: it converts to the map each frame,
+// so a mark under a still mouse stays put while the view scrolls.
 let pointer: { x: number; y: number; click: boolean } | undefined;
 let drag: { x: number; y: number; moved: boolean; id: number } | null = null;
 const toScreen = (e: PointerEvent) => {
@@ -116,12 +120,14 @@ const toScreen = (e: PointerEvent) => {
 canvas.addEventListener('pointerdown', (e) => {
   const p = toScreen(e);
   drag = { x: p.x, y: p.y, moved: false, id: e.pointerId };
+  game.dragging = true;
   canvas.setPointerCapture(e.pointerId);
   // Taps on menus count as a press.
   if (game.phase !== 'play') input.pressed.add('start');
 });
 canvas.addEventListener('pointermove', (e) => {
   const p = toScreen(e);
+  if (e.pointerType === 'mouse') game.pointerAt = p;
   if (drag && drag.id === e.pointerId) {
     const dx = p.x - drag.x, dy = p.y - drag.y;
     if (drag.moved || Math.hypot(dx, dy) > 6) {
@@ -130,19 +136,23 @@ canvas.addEventListener('pointermove', (e) => {
       drag.x = p.x;
       drag.y = p.y;
     }
-  } else if (game.world?.cursorMode) {
-    const m = game.toMap(p.x, p.y);
-    pointer = { x: m.x, y: m.y, click: false };
-  }
+  } else if (e.pointerType === 'mouse' && game.world?.cursorMode) pointer = { x: p.x, y: p.y, click: false };
 });
+canvas.addEventListener('pointerleave', () => (game.pointerAt = null));
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    e.preventDefault();
+    game.setZoom(game.zoomIndex + (e.deltaY > 0 ? 1 : -1));
+  },
+  { passive: false },
+);
 const endDrag = (e: PointerEvent) => {
   if (!drag || drag.id !== e.pointerId) return;
   const p = toScreen(e);
-  if (!drag.moved && game.phase === 'play') {
-    const m = game.toMap(p.x, p.y);
-    pointer = { x: m.x, y: m.y, click: true };
-  }
+  if (!drag.moved && game.phase === 'play') pointer = { x: p.x, y: p.y, click: true };
   drag = null;
+  game.dragging = false;
 };
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);

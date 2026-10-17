@@ -40,9 +40,10 @@ Crates float down between turns: a red cross heals 25, a bomb is one more of a r
 | Tab / Q | Weapons |
 | 1-5 | Fuse of grenades and clusters |
 | Esc | Pause (Backspace quits from the pause screen) |
+| Z | Zoom out and in (100%, 66%, 50%) |
 | M | Music on/off |
 
-With the mouse: drag to look around, click to place airstrikes, teleports and girders (or to pick a weapon from the panel). A gamepad works too: stick or d-pad to walk and aim, A fires, B jumps, X flips, Y or the shoulder buttons open the weapons, Start pauses. On phones, the buttons are below the screen and a tap on the map places the mark.
+With the mouse: drag, or push against the screen's edge, to look around; the wheel zooms; click to place a mark and click it again to confirm an airstrike, teleport or girder (a click on the panel picks a weapon). The turn clock can be switched off on the title screen. A gamepad works too: stick or d-pad to walk and aim, A fires, B jumps, X flips, Y or the shoulder buttons open the weapons, Start pauses. On phones, the buttons are below the screen and a tap on the map places the mark.
 
 ## CPU moles
 

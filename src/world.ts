@@ -24,10 +24,10 @@ export const MID = 12;
 const WALK = 1;
 const CLIMB = 5;
 const DROP = 5;
-const TERMINAL = 9;
-/** Landing faster than this hurts. */
-const FALL_SAFE = 4.8;
-const FALL_DMG = 9;
+const TERMINAL = 12;
+/** Landing faster than this hurts: a backflip's own height is still safe, a long fall is not. */
+const FALL_SAFE = 7;
+const FALL_DMG = 10;
 const AIM_SPEED = 0.02;
 const MAX_HP = 100;
 const DEATH_FRAMES = 60;
@@ -38,7 +38,7 @@ const CRATE_CHANCE = 0.35;
 const WATER_RISE = 14;
 const ROPE_LEN_MAX = 160;
 
-export type Action = 'left' | 'right' | 'up' | 'down' | 'fire' | 'jump' | 'flip' | 'weapons' | 'start' | 'back' | 'mute' | 'quit';
+export type Action = 'left' | 'right' | 'up' | 'down' | 'fire' | 'jump' | 'flip' | 'weapons' | 'start' | 'back' | 'mute' | 'quit' | 'zoom';
 
 export interface Input {
   held: Set<Action>;
@@ -592,13 +592,14 @@ export class World {
         if (input.held.has('down')) this.cursor.y += sp;
       }
       if (input.pointer) {
+        // A click on the mark fires; a click elsewhere (a tap on a phone) moves the mark there.
+        const near = Math.hypot(input.pointer.x - this.cursor.x, input.pointer.y - this.cursor.y) < 10;
         this.cursor.x = input.pointer.x;
         this.cursor.y = input.pointer.y;
-        if (input.pointer.click && canShoot) this.useCursor(m);
+        if (input.pointer.click && near && canShoot) this.useCursor(m);
       }
       this.cursor.x = Math.max(0, Math.min(this.w, this.cursor.x));
       this.cursor.y = Math.max(-200, Math.min(this.waterY, this.cursor.y));
-      this.focus = { ...this.cursor };
       return;
     }
 
@@ -610,8 +611,8 @@ export class World {
     const between = wp.id === 'shotgun' && this.shotsLeft < wp.shots && this.phase === 'move';
     if (between || !m.onGround) return;
     if (input.pressed.has('jump')) {
-      m.vx = m.facing * 2.4;
-      m.vy = -4.6;
+      m.vx = m.facing * 2.2;
+      m.vy = -4.2;
       m.onGround = false;
       m.anim = 'jump';
       m.animT = 0;
@@ -620,7 +621,7 @@ export class World {
     }
     if (input.pressed.has('flip')) {
       m.vx = -m.facing * 0.8;
-      m.vy = -6.6;
+      m.vy = -6.2;
       m.onGround = false;
       m.anim = 'flip';
       m.animT = 0;
@@ -732,14 +733,17 @@ export class World {
       const steps = Math.ceil(Math.max(Math.abs(m.vx), Math.abs(m.vy)));
       const dx = m.vx / steps, dy = m.vy / steps;
       for (let i = 0; i < steps; i++) {
-        // Horizontal first: a wall stops or bounces, a small step is climbed.
+        // Horizontal first: a small step up is taken in stride, a wall stops or bounces.
         if (dx !== 0) {
           const nx = m.x + dx;
-          if (t.boxFree(nx, m.y, HW, HH)) m.x = nx;
-          else if (Math.abs(m.vy) < 2 && t.boxFree(nx, m.y - 3, HW, HH)) {
-            m.x = nx;
-            m.y -= 3;
-          } else m.vx = m.flying ? -m.vx * 0.4 : 0;
+          let moved = false;
+          for (let up = 0; up <= 4 && !moved; up++)
+            if (t.boxFree(nx, m.y - up, HW, HH)) {
+              m.x = nx;
+              m.y -= up;
+              moved = true;
+            }
+          if (!moved) m.vx = m.flying ? -m.vx * 0.4 : 0;
         }
         const ny = m.y + dy;
         if (dy > 0) {
