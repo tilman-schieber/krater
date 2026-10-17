@@ -34,6 +34,8 @@ export interface Weapon {
   /** Blast radius and the damage at its centre, where it blows up. */
   radius: number;
   damage: number;
+  /** Launch speed relative to the bazooka's, for charged weapons. */
+  speed: number;
   /** Turns the wind can push it. */
   wind: boolean;
   /** Bounces instead of blowing up on contact; it has a fuse then. */
@@ -55,6 +57,7 @@ const W = (w: Partial<Weapon> & Pick<Weapon, 'id' | 'name' | 'use' | 'blurb'>): 
   ammo: -1,
   radius: 0,
   damage: 0,
+  speed: 1,
   wind: false,
   bounce: false,
   fuse: 3,
@@ -66,8 +69,8 @@ const W = (w: Partial<Weapon> & Pick<Weapon, 'id' | 'name' | 'use' | 'blurb'>): 
 
 export const WEAPONS: Weapon[] = [
   W({ id: 'bazooka', name: 'BAZOOKA', use: 'charge', radius: 42, damage: 50, wind: true, blurb: 'BLOWS UP ON CONTACT. THE WIND BENDS IT.' }),
-  W({ id: 'grenade', name: 'GRENADE', use: 'charge', radius: 42, damage: 50, bounce: true, blurb: 'BOUNCES, THEN GOES OFF. 1-5 SETS THE FUSE.' }),
-  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 2, radius: 26, damage: 20, blurb: 'FIRE AGAIN IN FLIGHT: IT RAINS FIVE BOMBLETS.' }),
+  W({ id: 'grenade', name: 'GRENADE', use: 'charge', radius: 42, damage: 50, speed: 0.7, bounce: true, blurb: 'BOUNCES. FIRE AGAIN TO SET IT OFF, OR WAIT FOR THE FUSE (1-5).' }),
+  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 2, radius: 26, damage: 20, speed: 0.7, blurb: 'FIRE AGAIN IN FLIGHT: IT RAINS FIVE BOMBLETS.' }),
   W({ id: 'shotgun', name: 'SHOTGUN', use: 'instant', radius: 16, damage: 30, shots: 2, retreat: 0, blurb: 'TWO STRAIGHT SHOTS. AIM AGAIN BETWEEN THEM.' }),
   W({ id: 'dynamite', name: 'DYNAMITE', use: 'place', ammo: 2, radius: 72, damage: 75, fuse: 5, retreat: 5, blurb: 'DROP IT AND RUN. FIVE SECONDS.' }),
   W({ id: 'airstrike', name: 'AIRSTRIKE', use: 'cursor', ammo: 1, radius: 26, damage: 24, wind: true, blurb: 'FIVE BOMBS FROM ABOVE. MARK THE SPOT.' }),

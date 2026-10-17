@@ -214,4 +214,4 @@ function frame(now: number) {
 loadSprites().then(() => requestAnimationFrame(frame));
 
 // A few helpers for the console in dev builds: sim() plays CPU battles without a screen.
-if (import.meta.env.DEV) import('./sim').then(({ simulate }) => Object.assign(window, { game, sim: simulate }));
+if (import.meta.env.DEV) import('./sim').then(({ simulate, debug }) => Object.assign(window, { game, sim: simulate, krater: debug }));

@@ -369,8 +369,8 @@ function drawHud(ctx: Ctx, game: Game, w: World) {
     if (w.phase === 'retreat') drawTextCentered(ctx, 'RUN', 34, 40, YELLOW);
   }
   // Movement left this turn, under the clock.
-  if (w.phase === 'move' && w.settings.moveLimit > 0) {
-    const y = w.settings.turnSeconds ? 50 : 10;
+  if (w.budgeted) {
+    const y = 10;
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(8, y - 2, 52, 12);
     ctx.fillStyle = DARK;
@@ -535,7 +535,7 @@ function renderTitle(ctx: Ctx, game: Game) {
     MOLES: `${s.moles} PER TEAM`,
     MAP: MAPS[s.map],
     WIND: s.wind ? 'ON' : 'OFF',
-    MOVEMENT: MOVE_NAMES[s.move],
+    MOVEMENT: TIMES[s.time] ? 'BY THE CLOCK' : MOVE_NAMES[s.move],
     'TURN TIME': TIMES[s.time] ? `${TIMES[s.time]} SEC` : 'OFF',
     'SUDDEN DEATH': s.sudden ? `AFTER ${SUDDEN[s.sudden]} TURNS` : 'OFF',
     MUSIC: MUSIC_NAMES[s.music],

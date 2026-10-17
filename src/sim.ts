@@ -5,6 +5,9 @@ import { World, Settings, Event, WeaponStat, mapWidth, MAP_H } from './world';
 import { Bot } from './bot';
 import { THEMES } from './themes';
 
+/** The pieces a dev console needs to build worlds by hand (window.krater). */
+export const debug = { World, Bot, THEMES, makeRng, mapWidth, MAP_H };
+
 export interface SimResult {
   seed: number;
   theme: string;
@@ -33,7 +36,8 @@ export function simulate(opts: { seed?: number; teams?: number; moles?: number; 
     molesPerTeam: opts.moles ?? 3,
     wind: opts.wind ?? true,
     moveLimit: opts.moveLimit ?? 200,
-    turnSeconds: 45,
+    // A move limit only counts without a clock; the frame cap bounds a game either way.
+    turnSeconds: (opts.moveLimit ?? 200) > 0 ? 0 : 45,
     suddenDeath: 10,
   };
   const theme = THEMES[opts.theme ?? seed % THEMES.length];

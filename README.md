@@ -15,7 +15,7 @@ Tab opens the panel. Most are unlimited; the rarer ones come a few per game and 
 | Weapon | What it does |
 | --- | --- |
 | Bazooka | Blows up on contact. The wind bends it. |
-| Grenade | Bounces, goes off when the fuse runs out; 1-5 set the fuse. |
+| Grenade | Bounces; press fire again to set it off, or wait for the fuse (1-5 set it). Thrown slower than a shell. |
 | Cluster | Flies like a shell; press fire again while it flies and five bomblets rain down from there. On the ground it bursts upward. |
 | Shotgun | Two straight shots of 30; aim again in between. |
 | Dynamite | Dropped at your feet, five seconds. Run. |
@@ -34,7 +34,7 @@ Crates float down between turns: a red cross heals 25, a bomb is one more of a r
 | --- | --- |
 | Left / Right (A / D) | Walk |
 | Up / Down (W / S) | Aim; turn a girder |
-| Space | Hold to charge, let go to fire; confirm a mark |
+| Space | Hold to charge, let go to fire; confirm a mark; press again to set off a grenade or burst a cluster |
 | Enter | Jump forward |
 | Backspace | Backflip |
 | Tab / Q | Weapons |
@@ -43,7 +43,7 @@ Crates float down between turns: a red cross heals 25, a bomb is one more of a r
 | Z | Zoom out and in (100%, 66%, 50%) |
 | M | Music on/off |
 
-With the mouse: drag, or push against the screen's edge, to look around; the wheel zooms; click to place a mark and click it again to confirm an airstrike, teleport or girder (a click on the panel picks a weapon). The turn clock can be switched off on the title screen. A gamepad works too: stick or d-pad to walk and aim, A fires, B jumps, X flips, Y or the shoulder buttons open the weapons, Start pauses. On phones, the buttons are below the screen and a tap on the map places the mark.
+With the mouse: drag, or push against the screen's edge, to look around; the wheel zooms; click to place a mark and click it again to confirm an airstrike, teleport or girder (a click on the panel picks a weapon). The turn clock can be switched off on the title screen; a turn then has a movement budget instead, a MOVE bar that walking and jumping use up by the pixel. A gamepad works too: stick or d-pad to walk and aim, A fires, B jumps, X flips, Y or the shoulder buttons open the weapons, Start pauses. On phones, the buttons are below the screen and a tap on the map places the mark.
 
 ## CPU moles
 
@@ -64,6 +64,8 @@ npm run build
 Add `?debug` to the URL for the camera and phase readout. In a dev build the console has `game` and `sim(opts)`, which plays a CPU battle without a screen and returns the result (`sim({ seed: 1, teams: 4 })`); the world it ended with is in `.world`.
 
 For balancing, `npm run playtest` has CPU teams fight many games headless: it starts Vite, opens the dev build in headless Chromium (`puppeteer-core`; set `CHROMIUM` if the browser isn't `/usr/bin/chromium`) and calls `sim()` once per game, thirty games in about fifteen seconds. It prints how long games run, who wins by seat and by skill, and a table per weapon: turns used, damage per use to the other teams and to the user's own, kills and water knock-ins per use, and each weapon's share of all damage. Runs are reproducible by seed; every game goes in full to `tools/playtest/out/`. `npm run playtest -- --help` lists the options.
+
+`node tools/walktest.mjs` is the same kind of harness for the walking physics: a mole walks across forty generated maps in both directions and every stop is listed with the ground ahead of it. Stops should only be walls, low ceilings and the water.
 
 ```sh
 npm run playtest -- --games 40 --teams mix            # 2, 3 and 4 teams in turn, skill 0.7

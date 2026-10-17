@@ -10,7 +10,7 @@
 //   --moles N        moles per team (default 3)
 //   --skill 0..1     CPU skill of every team (default 0.7)
 //   --skills a,b,..  skills per seat, e.g. 0.3,0.9 to pit a weak team against a strong one
-//   --move N         movement budget per turn in pixels, 0 for none (default 200)
+//   --move N         movement budget per turn in pixels, 0 for none; the turn clock is off when there is one (default 200)
 //   --wind on|off    (default on)
 //   --url URL        use a running dev server instead of starting one
 //   --out FILE       JSON output (default tools/playtest/out/<timestamp>.json)

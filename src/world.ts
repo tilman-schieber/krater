@@ -15,6 +15,8 @@ export const MIN_SPEED = 3;
 export const WIND_ACC = 0.018;
 /** Frames the fire button takes to charge a shot fully. */
 export const CHARGE_FRAMES = 50;
+/** Launch speed of a charged weapon at a charge of 0..1 (grenades fly slower than shells). */
+export const launchSpeed = (wp: Weapon, power: number) => (MIN_SPEED + (MAX_SPEED - MIN_SPEED) * power) * wp.speed;
 
 /** A mole's hitbox: half width and height, standing on its feet at (x, y). */
 export const HW = 7;
@@ -22,6 +24,8 @@ export const HH = 24;
 /** Where blasts measure to, above the feet. */
 export const MID = 12;
 const WALK = 1;
+/** Half the width of the feet and body for walking collisions: narrower than the sprite, like a worm's. */
+const FOOT = 4;
 const CLIMB = 5;
 const DROP = 5;
 const TERMINAL = 12;
@@ -30,8 +34,6 @@ const FALL_SAFE = 7;
 const FALL_DMG = 10;
 const AIM_SPEED = 0.02;
 /** What a jump and a backflip take off the movement budget. */
-const JUMP_COST = 40;
-const FLIP_COST = 30;
 const MAX_HP = 100;
 const DEATH_FRAMES = 60;
 const TURN_INTRO = 90;
@@ -277,6 +279,11 @@ export class World {
   turnLeft = 0;
   /** Walking left in this turn, in pixels. */
   moveLeft = 0;
+
+  /** Whether the move bar limits this turn: only without a turn clock, which limits movement on its own. */
+  get budgeted() {
+    return this.phase === 'move' && this.settings.moveLimit > 0 && this.settings.turnSeconds === 0;
+  }
   retreatLeft = 0;
   settleT = 0;
   /** Team turns taken. */
@@ -527,7 +534,7 @@ export class World {
       return;
     }
     // A cluster in flight bursts on the next press of fire.
-    if (input.pressed.has('fire') && !this.charging && this.phase !== 'intro') this.tryBurst();
+    if (input.pressed.has('fire') && !this.charging && this.phase !== 'intro') this.trigger();
     switch (this.phase) {
       case 'intro':
         if (--this.timer <= 0 || (this.timer < TURN_INTRO - 20 && input.pressed.size && !this.handover)) {
@@ -663,7 +670,7 @@ export class World {
     // turn itself; the retreat is limited by its clock instead.
     const between = wp.id === 'shotgun' && this.shotsLeft < wp.shots && this.phase === 'move';
     if (between || !m.onGround) return;
-    const budget = this.phase === 'move' && this.settings.moveLimit > 0;
+    const budget = this.budgeted;
     const canMove = !budget || this.moveLeft > 0;
     if (input.pressed.has('jump') && canMove) {
       m.vx = m.facing * 2.2;
@@ -671,7 +678,6 @@ export class World {
       m.onGround = false;
       m.anim = 'jump';
       m.animT = 0;
-      if (budget) this.moveLeft = Math.max(0, this.moveLeft - JUMP_COST);
       this.events.push('jump');
       return;
     }
@@ -681,7 +687,6 @@ export class World {
       m.onGround = false;
       m.anim = 'flip';
       m.animT = 0;
-      if (budget) this.moveLeft = Math.max(0, this.moveLeft - FLIP_COST);
       this.events.push('jump');
       return;
     }
@@ -728,34 +733,47 @@ export class World {
 
   // ---------- moles ----------
 
-  private standing(m: Mole) {
+  /** Whether feet at (x, y) touch something solid: any pixel of the foot row. */
+  private footSolid(x: number, y: number) {
     const t = this.terrain;
-    return t.isSolid(m.x - HW + 2, m.y) || t.isSolid(m.x, m.y) || t.isSolid(m.x + HW - 2, m.y);
+    for (let dx = -FOOT; dx <= FOOT; dx++) if (t.isSolid(x + dx, y)) return true;
+    return false;
+  }
+
+  /**
+   * Whether a body with its feet at (x, y) is clear of terrain. Every pixel is checked: a sampled
+   * box saw a single pixel at one position and not at the next, and stopped the walk at random.
+   */
+  private bodyFree(x: number, y: number) {
+    const t = this.terrain;
+    for (let yy = y - HH; yy < y; yy++) for (let dx = -FOOT; dx <= FOOT; dx++) if (t.isSolid(x + dx, yy)) return false;
+    return true;
+  }
+
+  private standing(m: Mole) {
+    return this.footSolid(m.x, m.y);
   }
 
   private walk(m: Mole, dir: number) {
-    const t = this.terrain;
     const nx = m.x + dir * WALK;
-    for (let up = 0; up <= CLIMB; up++) {
-      if (t.boxFree(nx, m.y - up, HW, HH)) {
+    // The footing ahead is the highest solid row under the feet within a step up or down; a slope
+    // climbs or drops that far per pixel. Anything taller is a wall, and the body must fit above
+    // the new footing (a low ceiling stops the mole as well).
+    for (let dy = -CLIMB; dy <= DROP; dy++) {
+      const ny = m.y + dy;
+      if (!this.footSolid(nx, ny)) continue;
+      if (this.bodyFree(nx, ny)) {
         m.x = nx;
-        m.y -= up;
-        break;
+        m.y = ny;
       }
-      if (up === CLIMB) return; // a wall
+      return;
     }
-    // Keep the feet on the ground down a small step; otherwise start falling.
-    if (!this.standing(m)) {
-      for (let d = 1; d <= DROP; d++) {
-        if (t.isSolid(m.x - HW + 2, m.y + d) || t.isSolid(m.x, m.y + d) || t.isSolid(m.x + HW - 2, m.y + d)) {
-          m.y += d;
-          return;
-        }
-      }
-      m.onGround = false;
-      m.vx = dir * 0.6;
-      m.vy = 0;
-    }
+    // Nothing within reach below: off the edge.
+    if (!this.bodyFree(nx, m.y)) return;
+    m.x = nx;
+    m.onGround = false;
+    m.vx = dir * 0.6;
+    m.vy = 0;
   }
 
   private stepMole(m: Mole) {
@@ -775,7 +793,6 @@ export class World {
     if (m.rope) return this.stepRope(m);
     // The water takes anyone it reaches, standing or not (it rises in sudden death).
     if (m.y >= this.waterY) return this.drown(m);
-    const t = this.terrain;
     if (m.onGround) {
       // Ground gone from under the feet (a crater): fall.
       if (!this.standing(m)) {
@@ -800,19 +817,20 @@ export class World {
           let moved = false;
           // A step up only onto ground (a ledge), never into the air: a floating climb would
           // cancel the fall and hang the mole in mid-air.
-          const ledge = (y: number) => t.isSolid(nx - HW + 2, y) || t.isSolid(nx, y) || t.isSolid(nx + HW - 2, y);
           for (let up = 0; up <= 4 && !moved; up++)
-            if (t.boxFree(nx, m.y - up, HW, HH) && (up === 0 || ledge(m.y - up))) {
+            if (this.bodyFree(nx, m.y - up) && (up === 0 || this.footSolid(nx, m.y - up))) {
               m.x = nx;
               m.y -= up;
               moved = true;
             }
+          // A jump costs the ground it covers, like walking.
+          if (moved && m === this.activeMole && !m.flying && this.budgeted) this.moveLeft = Math.max(0, this.moveLeft - Math.abs(dx));
           if (!moved) m.vx = m.flying ? -m.vx * 0.4 : 0;
           if (Math.abs(m.vx) < 0.05) m.vx = 0;
         }
         const ny = m.y + dy;
         if (dy > 0) {
-          if (t.isSolid(m.x - HW + 2, ny) || t.isSolid(m.x, ny) || t.isSolid(m.x + HW - 2, ny)) {
+          if (this.footSolid(m.x, ny)) {
             // Landed: the feet sit on the first solid row.
             m.y = Math.floor(ny);
             this.land(m);
@@ -820,7 +838,7 @@ export class World {
           }
           m.y = ny;
         } else if (dy < 0) {
-          if (t.boxFree(m.x, ny, HW, HH)) m.y = ny;
+          if (this.bodyFree(m.x, ny)) m.y = ny;
           else {
             m.vy = 0;
             break;
@@ -971,7 +989,7 @@ export class World {
   private fireCharged(m: Mole, power: number) {
     this.charging = false;
     const wp = this.weapon;
-    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * power;
+    const speed = launchSpeed(wp, power);
     const { x, y } = this.muzzle(m);
     const vx = Math.cos(m.aim) * m.facing * speed, vy = -Math.sin(m.aim) * speed;
     this.launch(wp, x, y, vx, vy, m.id, this.team.fuse);
@@ -1149,15 +1167,28 @@ export class World {
     this.settleT = 0;
   }
 
-  /** Bursts the active team's cluster, if one is flying. */
-  tryBurst() {
-    const p = this.projs.find((q) => q.kind === 'cluster' && q.split && !q.rest && this.moles.find((m) => m.id === q.owner)?.team === this.activeTeam);
+  /** A second press of fire: bursts the active team's flying cluster, or sets off its grenade. */
+  trigger() {
+    const own = (q: Proj) => this.moles.find((m) => m.id === q.owner)?.team === this.activeTeam;
+    const p = this.projs.find((q) => ((q.kind === 'cluster' && q.split && !q.rest) || q.kind === 'grenade') && own(q));
     if (!p) return false;
     this.projs = this.projs.filter((q) => q !== p);
+    if (p.kind === 'grenade') {
+      this.detonate(p);
+      return true;
+    }
     this.explosions.push({ x: p.x, y: p.y, r: 10, t: 0, scale: 0.35 });
     this.events.push('smallboom');
     this.spawnBomblets(p, true);
     return true;
+  }
+
+  /** A projectile goes off where it is. */
+  private detonate(p: Proj) {
+    const owner = this.moles.find((m) => m.id === p.owner);
+    const cause = p.kind === 'bomb' ? 'airstrike' : p.kind === 'bomblet' ? 'cluster' : p.kind;
+    this.explode(p.x, p.y, p.radius, p.damage, owner?.team ?? -1, -1, p.radius / 42, cause);
+    if (p.split) this.spawnBomblets(p, false);
   }
 
   private spawnBomblets(p: Proj, inFlight: boolean) {
@@ -1260,11 +1291,7 @@ export class World {
         continue;
       }
       if (r === 'gone') continue;
-      // Explode.
-      const owner = this.moles.find((m) => m.id === p.owner);
-      const cause = p.kind === 'bomb' ? 'airstrike' : p.kind === 'bomblet' ? 'cluster' : p.kind;
-      this.explode(p.x, p.y, p.radius, p.damage, owner?.team ?? -1, -1, p.radius / 42, cause);
-      if (p.split) this.spawnBomblets(p, false);
+      this.detonate(p);
     }
     // Bomblets pushed while iterating are in this.projs beyond the old length; keep them too.
     for (const p of this.projs) if (p.kind === 'bomblet' && !keep.includes(p) && p.age === 10) keep.push(p);
@@ -1377,7 +1404,8 @@ export class World {
       const dx = m.x - x, dy = m.y - MID - y;
       const dist = Math.max(1, Math.hypot(dx, dy));
       const f = 1 - dist / (r + HW + 4);
-      const k = (3 + 7 * f) * Math.sqrt(r / 42);
+      // A graze at the rim barely moves a mole; a direct hit sends it flying.
+      const k = (1.5 + 8.5 * f) * Math.sqrt(r / 42);
       m.vx += (dx / dist) * k;
       m.vy += (dy / dist) * k - 2 * f;
       m.onGround = false;

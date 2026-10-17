@@ -3,7 +3,7 @@
 // airstrike), scores each by the damage it would do to the enemy minus what it would do to its
 // own side, and takes the best. If nothing is worth firing, it walks toward the nearest enemy
 // and looks again. Skill blurs the chosen angle and power and thins the search.
-import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS, BOMBLET_R, BOMBLET_DMG, bombletVelocities } from './world';
+import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS, BOMBLET_R, BOMBLET_DMG, bombletVelocities, launchSpeed } from './world';
 import { WeaponId, weapon } from './weapons';
 
 interface Shot {
@@ -86,7 +86,7 @@ export class Bot {
     // Out of walks or out of budget: take what there is, or lob one toward the enemy anyway.
     const settle = (): Plan => ({ kind: 'shoot', shot: best && best.score > 0 ? best : this.lob(w, m), state: 'turn', t: 0 });
     if (this.walks >= 2) return settle();
-    if (w.settings.moveLimit > 0 && w.moveLeft < 20) {
+    if (w.budgeted && w.moveLeft < 20) {
       this.walks = 2;
       return settle();
     }
@@ -94,7 +94,7 @@ export class Bot {
     this.walks++;
     const dir: 1 | -1 = e ? (e.x > m.x ? 1 : -1) : m.facing;
     let t = 60 + Math.round(w.rng() * 60);
-    if (w.settings.moveLimit > 0) t = Math.min(t, w.moveLeft);
+    if (w.budgeted) t = Math.min(t, w.moveLeft);
     return { kind: 'walk', dir, t, stuck: 0, lastX: m.x, jumped: false };
   }
 
@@ -246,7 +246,7 @@ export class Bot {
   /** Flies a shot on the world's code and scores where it ends (and, for a cluster, the best burst). */
   private simulate(w: World, m: Mole, id: WeaponId, facing: 1 | -1, aim: number, power: number, fuse: number): { score: number; burstAt?: number } {
     const wp = weapon(id);
-    const speed = 3 + 11 * power;
+    const speed = launchSpeed(wp, power);
     const p: Proj = {
       kind: id,
       x: m.x + Math.cos(aim) * facing * 14,
@@ -264,14 +264,16 @@ export class Bot {
       split: id === 'cluster',
       spin: 0,
     };
-    // A cluster can be burst in flight: try that every few frames on the way down near an enemy.
+    // A cluster can be burst in flight and a grenade set off early: try that every few frames
+    // near an enemy (a weak CPU doesn't know the trick).
     let bestBurst = -Infinity, burstAt: number | undefined;
     const enemies = this.enemies(w);
+    const early = id === 'grenade' ? this.skill > 0.3 : p.split;
     for (let f = 0; f < SIM_FRAMES; f++) {
       const r = w.flyStep(p);
       if (r === 'fly') {
-        if (p.split && f % 5 === 0 && p.vy > 0 && enemies.some((e) => Math.abs(e.x - p.x) < 220 && e.y > p.y)) {
-          const s = this.scoreBomblets(w, { ...p }, true, m);
+        if (early && f % 5 === 0 && (p.vy > 0 || p.rest) && enemies.some((e) => Math.abs(e.x - p.x) < 220 && Math.abs(e.y - p.y) < 220)) {
+          const s = p.split ? this.scoreBomblets(w, { ...p }, true, m) : this.scoreBlast(w, p.x, p.y, p.radius, p.damage, m);
           if (s > bestBurst) {
             bestBurst = s;
             burstAt = f + 1;
@@ -340,7 +342,7 @@ export class Bot {
         break;
       }
       case 'wait':
-        // A cluster bursts at the frame the simulation liked.
+        // A cluster bursts, or a grenade goes off, at the frame the simulation liked.
         if (s.burstAt !== undefined && p.t >= s.burstAt) {
           input.pressed.add('fire');
           s.burstAt = undefined;
