@@ -26,20 +26,6 @@ function noise1(rng: Rng, points: number) {
   };
 }
 
-/** Smooth 2D value noise on a grid of `nx` by `ny` cells. */
-function noise2(rng: Rng, nx: number, ny: number) {
-  const v = new Float32Array((nx + 1) * (ny + 1));
-  for (let i = 0; i < v.length; i++) v[i] = rng();
-  return (x: number, y: number) => {
-    const i = Math.floor(x), j = Math.floor(y);
-    const fx = x - i, fy = y - j;
-    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const a = v[j * (nx + 1) + i], b = v[j * (nx + 1) + i + 1];
-    const c = v[(j + 1) * (nx + 1) + i], d = v[(j + 1) * (nx + 1) + i + 1];
-    return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy;
-  };
-}
-
 export class Terrain {
   readonly solid: Uint8Array;
   readonly canvas: HTMLCanvasElement;
@@ -80,57 +66,154 @@ export class Terrain {
 
   private generate(rng: Rng) {
     const { w, h, waterY } = this;
-    const top = h * 0.22;
-    const base = waterY - 40;
-    // Three octaves of hills, then the islands: stretches where the ground dips under the water.
-    const n1 = noise1(rng, 6), n2 = noise1(rng, 14), n3 = noise1(rng, 40);
-    const gaps = noise1(rng, 5);
+    const top = h * 0.3;
+    const base = waterY - 50;
+    // Rolling hills in three octaves, mostly gentle, and now and then a gap down to the water.
+    const n1 = noise1(rng, 5), n2 = noise1(rng, 12), n3 = noise1(rng, 36);
+    const gaps = noise1(rng, 4);
     const surface = new Float32Array(w);
     for (let x = 0; x < w; x++) {
       const t = x / w;
-      let r = n1(t * 6) * 0.6 + n2(t * 14) * 0.3 + n3(t * 40) * 0.1;
-      // Ground slopes into the water at both ends, and dips where the gap noise is low.
-      const edge = Math.min(1, Math.min(x, w - 1 - x) / 160);
-      const g = gaps(t * 5);
-      const dip = g < 0.3 ? (0.3 - g) / 0.3 : 0;
-      r = r * edge - dip * 0.9 + (1 - edge) * -0.2;
+      let r = n1(t * 5) * 0.6 + n2(t * 12) * 0.3 + n3(t * 36) * 0.1;
+      // Ground slopes into the water at both ends, and dips where the gap noise is very low.
+      const edge = Math.min(1, Math.min(x, w - 1 - x) / 140);
+      const g = gaps(t * 4);
+      const dip = g < 0.14 ? (0.14 - g) / 0.14 : 0;
+      r = (0.15 + r * 0.85) * edge - dip * 1.2 + (1 - edge) * -0.25;
       surface[x] = base - r * (base - top);
     }
-    // Caves and overhangs: 2D noise carves the interior, but never the rim near the surface.
-    const caves = noise2(rng, Math.ceil(w / 48), Math.ceil(h / 40));
-    const caves2 = noise2(rng, Math.ceil(w / 20), Math.ceil(h / 18));
-    for (let x = 0; x < w; x++) {
-      const s = surface[x];
-      for (let y = Math.max(0, Math.floor(s)); y < h; y++) {
-        const depth = y - s;
-        let v = EARTH;
-        if (depth > 14) {
-          const c = caves(x / 48, y / 40) * 0.7 + caves2(x / 20, y / 18) * 0.3;
-          // Deeper down the caves get a little bigger; near the water they close again.
-          const bias = Math.min(0.12, depth / 400) - Math.max(0, (y - (waterY - 30)) / 60);
-          if (c + bias > 0.68) v = AIR;
-        }
-        this.solid[y * w + x] = v;
+    for (let x = 0; x < w; x++) for (let y = Math.max(0, Math.floor(surface[x])); y < h; y++) this.solid[y * w + x] = EARTH;
+
+    // Caverns: a few rounded chambers well under the surface.
+    const caverns = 1 + Math.floor(rng() * 3);
+    for (let k = 0; k < caverns; k++) {
+      const cx = 120 + rng() * (w - 240);
+      const s = surface[Math.floor(cx)];
+      const room = waterY - 40 - s;
+      if (room < 120) continue;
+      const cy = s + 60 + rng() * (room - 90);
+      this.carveBlob(cx, cy, 30 + rng() * 40, 18 + rng() * 18, rng);
+    }
+    // Tunnels: wandering passages from one side of a hill toward the other.
+    const tunnels = 1 + Math.floor(rng() * 2);
+    for (let k = 0; k < tunnels; k++) {
+      let x = 150 + rng() * (w - 300);
+      let y = surface[Math.floor(x)] + 50 + rng() * 40;
+      let dir = (rng() < 0.5 ? 1 : -1) * (0.6 + rng() * 0.6);
+      let slope = 0;
+      const len = 120 + rng() * 180;
+      for (let i = 0; i < len; i += 3) {
+        slope += (rng() - 0.5) * 0.3;
+        slope = Math.max(-0.7, Math.min(0.7, slope));
+        x += dir * 3;
+        y += slope * 3;
+        if (x < 40 || x > w - 40 || y > waterY - 50) break;
+        // Never closer than 28px to the surface, so the roof holds.
+        if (y - surface[Math.floor(x)] < 28) slope = Math.abs(slope) + 0.2;
+        this.carveDisc(x, y, 11 + Math.sin(i * 0.1) * 2);
       }
     }
-    // Floating chunks over the gaps, so there is something to stand on and to shoot over.
-    const chunks = 2 + Math.floor(rng() * 3);
+    // A floating chunk or two, something to stand on and to shoot over.
+    const chunks = 1 + Math.floor(rng() * 2);
     for (let k = 0; k < chunks; k++) {
       const cx = 200 + rng() * (w - 400);
-      const cy = top + 40 + rng() * (base - top - 120);
-      if (surface[Math.floor(cx)] - cy < 90) continue;
-      const rw = 50 + rng() * 70, rh = 16 + rng() * 18;
-      this.fillBlob(cx, cy, rw, rh, rng);
+      const cy = top + 20 + rng() * (base - top - 140);
+      if (surface[Math.floor(cx)] - cy < 100) continue;
+      this.fillBlob(cx, cy, 50 + rng() * 60, 16 + rng() * 14, rng);
+    }
+    this.smooth(2);
+    this.tidy();
+  }
+
+  /** A pixel disc of air. */
+  private carveDisc(cx: number, cy: number, r: number) {
+    for (let y = Math.floor(cy - r); y <= cy + r; y++) {
+      if (y < 0 || y >= this.h) continue;
+      const half = Math.sqrt(Math.max(0, r * r - (y - cy) * (y - cy)));
+      for (let x = Math.max(0, Math.floor(cx - half)); x <= Math.min(this.w - 1, cx + half); x++) this.solid[y * this.w + x] = AIR;
+    }
+  }
+
+  /** An ellipse of air with a wavy edge. */
+  private carveBlob(cx: number, cy: number, rw: number, rh: number, rng: Rng) {
+    const n = noise1(rng, 8);
+    for (let a = 0; a < Math.PI * 2; a += 0.05) {
+      const k = 0.75 + 0.3 * n((a / (Math.PI * 2)) * 8);
+      this.carveDisc(cx + Math.cos(a) * rw * k * 0.6, cy + Math.sin(a) * rh * k * 0.6, Math.min(rw, rh) * 0.45);
     }
   }
 
   private fillBlob(cx: number, cy: number, rw: number, rh: number, rng: Rng) {
     const n = noise1(rng, 8);
     for (let x = Math.floor(cx - rw); x <= cx + rw; x++) {
+      if (x < 0 || x >= this.w) continue;
       const u = (x - cx) / rw;
       if (Math.abs(u) > 1) continue;
       const half = Math.sqrt(1 - u * u) * rh * (0.7 + 0.6 * n(((u + 1) / 2) * 8));
       for (let y = Math.floor(cy - half * 0.6); y <= cy + half; y++) if (y >= 0 && y < this.h) this.solid[y * this.w + x] = EARTH;
+    }
+  }
+
+  /** Rounds every edge: a pixel follows the majority of its neighbourhood. */
+  private smooth(passes: number) {
+    const { w, h } = this;
+    const src = new Uint8Array(this.solid);
+    for (let p = 0; p < passes; p++) {
+      for (let y = 1; y < h - 1; y++)
+        for (let x = 1; x < w - 1; x++) {
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (src[(y + dy) * w + x + dx]) n++;
+          this.solid[y * w + x] = n >= 5 ? EARTH : AIR;
+        }
+      src.set(this.solid);
+    }
+  }
+
+  /** Drops specks of ground and fills pinholes, by the size of their connected areas. */
+  private tidy() {
+    const { w, h, solid } = this;
+    const seen = new Uint8Array(w * h);
+    const stack: number[] = [];
+    const minGround = 500, minHole = 200;
+    for (let i = 0; i < w * h; i++) {
+      if (seen[i]) continue;
+      const v = solid[i];
+      // Air that touches the map's border is the open sky, never a hole.
+      let open = false;
+      const cells: number[] = [];
+      stack.push(i);
+      seen[i] = 1;
+      while (stack.length) {
+        const c = stack.pop()!;
+        cells.push(c);
+        const x = c % w, y = (c - x) / w;
+        if (x === 0 || y === 0 || x === w - 1 || y === h - 1) open = true;
+        for (const d of [c - 1, c + 1, c - w, c + w]) {
+          if (d < 0 || d >= w * h || seen[d] || solid[d] !== v) continue;
+          if ((d === c - 1 && x === 0) || (d === c + 1 && x === w - 1)) continue;
+          seen[d] = 1;
+          stack.push(d);
+        }
+        if (cells.length > 20000 && (v === AIR ? open : true)) {
+          // Big enough to keep; just mark the rest as seen without collecting.
+          while (stack.length) {
+            const r = stack.pop()!;
+            const rx = r % w, ry = (r - rx) / w;
+            void ry;
+            for (const d of [r - 1, r + 1, r - w, r + w]) {
+              if (d < 0 || d >= w * h || seen[d] || solid[d] !== v) continue;
+              if ((d === r - 1 && rx === 0) || (d === r + 1 && rx === w - 1)) continue;
+              seen[d] = 1;
+              stack.push(d);
+            }
+          }
+          cells.length = 0;
+          break;
+        }
+      }
+      if (!cells.length) continue;
+      if (v !== AIR && cells.length < minGround) for (const c of cells) solid[c] = AIR;
+      else if (v === AIR && !open && cells.length < minHole) for (const c of cells) solid[c] = EARTH;
     }
   }
 

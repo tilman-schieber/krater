@@ -159,8 +159,15 @@ export interface Plane {
   dir: 1 | -1;
   /** x positions where bombs still fall. */
   drops: number[];
+  /** How far before a mark a bomb leaves the plane, for the forward speed it carries. */
+  lead: number;
   life: number;
 }
+
+/** Where the airstrike plane flies, and its speed; bombs leave it with a share of that. */
+const PLANE_Y = 30;
+const PLANE_SPEED = 5;
+const BOMB_VX = 2.4;
 
 export interface Float {
   x: number;
@@ -201,6 +208,7 @@ export interface Settings {
   turnSeconds: number;
   /** Turns until the water starts rising; 0 for never. */
   suddenDeath: number;
+  /** Seconds a turn lasts; 0 for no clock. */
 }
 
 const MOLE_NAMES = [
@@ -274,25 +282,35 @@ export class World {
 
   // ---------- setup ----------
 
+  /** A standable spot near x, or -1. */
+  private spotNear(x: number, taken: number[], gap: number) {
+    for (let d = 0; d < 400; d += 6)
+      for (const xx of d ? [x - d, x + d] : [x]) {
+        if (xx < 30 || xx > this.w - 30) continue;
+        if (taken.some((s) => Math.abs(s - xx) < gap)) continue;
+        const g = this.terrain.groundBelow(xx, 0);
+        if (g < 0 || g > this.waterY - 30) continue;
+        if (!this.terrain.boxFree(xx, g, HW, HH)) continue;
+        return xx;
+      }
+    return -1;
+  }
+
+  /** Each team starts together in its own stretch of the map, in a random order of stretches. */
   private placeMoles() {
     const n = this.settings.molesPerTeam;
-    const spots: number[] = [];
-    let tries = 0;
-    while (spots.length < n * this.teams.length && tries++ < 4000) {
-      const x = 40 + Math.floor(this.rng() * (this.w - 80));
-      if (spots.some((s) => Math.abs(s - x) < 56)) continue;
-      const g = this.terrain.groundBelow(x, 0);
-      if (g < 0 || g > this.waterY - 30) continue;
-      if (!this.terrain.boxFree(x, g, HW, HH)) continue;
-      spots.push(x);
-    }
-    // Deal the spots out so that teams are mixed across the map.
-    spots.sort(() => this.rng() - 0.5);
-    let k = 0;
+    const order = this.teams.map((t) => t.index).sort(() => this.rng() - 0.5);
+    const zone = this.w / this.teams.length;
+    const taken: number[] = [];
     for (let m = 0; m < n; m++)
       for (const t of this.teams) {
-        const x = spots[k++ % spots.length];
-        const y = this.terrain.groundBelow(x, 0);
+        const centre = zone * (order.indexOf(t.index) + 0.5);
+        const want = centre + (this.rng() - 0.5) * zone * 0.5;
+        let x = this.spotNear(want, taken, 44);
+        if (x < 0) x = this.spotNear(want, taken, 20);
+        if (x < 0) x = Math.round(want);
+        taken.push(x);
+        const y = Math.max(0, this.terrain.groundBelow(x, 0));
         this.moles.push({
           id: this.nextId++,
           team: t.index,
@@ -470,8 +488,10 @@ export class World {
         break;
       case 'move':
         this.control(input);
-        if (--this.turnLeft <= 0) this.endTurn();
-        else if (this.turnLeft % FPS === 0 && this.turnLeft <= 5 * FPS) this.events.push('tick');
+        if (this.settings.turnSeconds) {
+          if (--this.turnLeft <= 0) this.endTurn();
+          else if (this.turnLeft % FPS === 0 && this.turnLeft <= 5 * FPS) this.events.push('tick');
+        }
         break;
       case 'retreat':
         this.control(input);
@@ -493,6 +513,7 @@ export class World {
     this.stepProjs();
     this.stepPlanes();
     this.stepCrates();
+    this.stepGraves();
     for (const e of this.explosions) e.t++;
     this.explosions = this.explosions.filter((e) => e.t < 12 * 5);
     for (const p of this.particles) {
@@ -508,7 +529,7 @@ export class World {
     if (this.phase !== 'over' && this.phase !== 'settle' && this.activeMole) this.focus = { x: this.activeMole.x, y: this.activeMole.y - MID };
     const p = this.projs[0];
     if (p && !p.rest) this.focus = { x: p.x, y: p.y };
-    else if (this.planes[0]) this.focus = { x: this.planes[0].x, y: Math.max(this.planes[0].y, 120) };
+    else if (this.planes[0]) this.focus = { x: this.planes[0].x, y: this.planes[0].y + 130 };
     else if (this.phase === 'settle') {
       const f = this.moles.find((m) => m.alive && m.flying) ?? this.moles.find((m) => m.dying > 0);
       if (f) this.focus = { x: f.x, y: f.y };
@@ -990,7 +1011,10 @@ export class World {
       case 'airstrike': {
         const dir: 1 | -1 = c.x >= m.x ? 1 : -1;
         const drops = [-2, -1, 0, 1, 2].map((k) => c.x + k * 22);
-        this.planes.push({ x: dir > 0 ? -80 : this.w + 80, y: -70, dir, drops, life: 0 });
+        // The bombs keep some forward speed: drop them early enough to come down on the mark.
+        const fall = Math.max(60, c.y - PLANE_Y);
+        const lead = BOMB_VX * Math.sqrt((2 * fall) / GRAVITY);
+        this.planes.push({ x: dir > 0 ? -80 : this.w + 80, y: PLANE_Y, dir, drops, lead, life: 0 });
         this.events.push('plane');
         break;
       }
@@ -1152,18 +1176,17 @@ export class World {
 
   private stepPlanes() {
     for (const pl of this.planes) {
-      pl.x += pl.dir * 6;
+      pl.x += pl.dir * PLANE_SPEED;
       pl.life++;
       const rest: number[] = [];
       for (const d of pl.drops) {
-        // Drop so the bomb's forward speed carries it to the mark: it falls ~70px at 6*0.4 forward... near enough.
-        if ((pl.dir > 0 && pl.x >= d - 30) || (pl.dir < 0 && pl.x <= d + 30)) {
+        if ((pl.dir > 0 && pl.x >= d - pl.lead) || (pl.dir < 0 && pl.x <= d + pl.lead)) {
           const wp = weapon('airstrike');
           this.projs.push({
             kind: 'bomb',
             x: pl.x,
             y: pl.y + 8,
-            vx: pl.dir * 2.4,
+            vx: pl.dir * BOMB_VX,
             vy: 0,
             fuse: -1,
             radius: wp.radius,
@@ -1181,6 +1204,16 @@ export class World {
       pl.drops = rest;
     }
     this.planes = this.planes.filter((pl) => pl.x > -200 && pl.x < this.w + 200);
+  }
+
+  /** Graves fall when the ground under them goes, and the water takes them. */
+  private stepGraves() {
+    const t = this.terrain;
+    for (const g of this.graves) {
+      if (!t.isSolid(g.x, g.y + 1) && !t.isSolid(g.x - 4, g.y + 1) && !t.isSolid(g.x + 4, g.y + 1)) g.y += 2;
+      if (g.y >= this.waterY && g.y < this.waterY + 2) this.splash(g.x, this.waterY, 6);
+    }
+    this.graves = this.graves.filter((g) => g.y < this.waterY);
   }
 
   private stepCrates() {

@@ -2,7 +2,7 @@
 // screens. Nothing here changes the game.
 import { drawText, drawTextCentered, drawTextScaled, drawTextShadow, textWidth } from 'arcade-kit/font';
 import { Ctx, WHITE, RED, GREY, LIGHT, DARK, YELLOW, GOLD, BLUE, GREEN, drawBox, disc } from 'arcade-kit/draw';
-import { Game, W, H, MENU, MenuRow, TEAM_KINDS, MAPS, TIMES, SUDDEN, MUSIC_NAMES, PANEL } from './game';
+import { Game, W, H, MENU, MENU_SECTIONS, MenuRow, TEAM_KINDS, MAPS, TIMES, SUDDEN, MUSIC_NAMES, PANEL } from './game';
 import { World, Mole, Proj, HH, MID, FPS, WEAPON_ORDER } from './world';
 import { weapon } from './weapons';
 import { spr, frames, flipped, rotated, teamed, white, drawAt, TEAM_COLORS, Sprite } from './sprites';
@@ -334,8 +334,8 @@ export function drawScene(ctx: Ctx, w: World, cam: { x: number; y: number }, fra
 function drawHud(ctx: Ctx, game: Game, w: World) {
   const th = w.theme;
   void th;
-  // Turn clock, top left.
-  if (w.phase === 'move' || w.phase === 'retreat') {
+  // Turn clock, top left (unless the clock is off).
+  if ((w.phase === 'move' && w.settings.turnSeconds) || w.phase === 'retreat') {
     const secs = w.phase === 'move' ? Math.ceil(w.turnLeft / FPS) : Math.ceil(w.retreatLeft / FPS);
     const col = w.phase === 'retreat' ? YELLOW : secs <= 5 ? RED : WHITE;
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -477,8 +477,16 @@ function renderTitle(ctx: Ctx, game: Game) {
   drawLogo(ctx, game.frame, 14);
   textC(ctx, 'MOLES WITH BAZOOKAS', W / 2, 70, 1, LIGHT);
   const s = game.settings;
-  const bx = W / 2 - 150, by = 86;
-  drawBox(ctx, bx, by, 300, 12 * 14 + 16);
+  const bx = W / 2 - 150, by = 82;
+  // Rows, with a heading and a gap where a section starts.
+  const rowY: number[] = [];
+  let y = by + 10;
+  MENU.forEach((row) => {
+    if (MENU_SECTIONS[row]) y += 14;
+    rowY.push(y);
+    y += 12;
+  });
+  drawBox(ctx, bx, by, 300, y - by + 6);
   const values: Record<MenuRow, string> = {
     'TEAM 1': TEAM_KINDS[s.teams[0]],
     'TEAM 2': TEAM_KINDS[s.teams[1]],
@@ -487,19 +495,21 @@ function renderTitle(ctx: Ctx, game: Game) {
     MOLES: `${s.moles} PER TEAM`,
     MAP: MAPS[s.map],
     WIND: s.wind ? 'ON' : 'OFF',
-    'TURN TIME': `${TIMES[s.time]} SEC`,
+    'TURN TIME': TIMES[s.time] ? `${TIMES[s.time]} SEC` : 'OFF',
     'SUDDEN DEATH': s.sudden ? `AFTER ${SUDDEN[s.sudden]} TURNS` : 'OFF',
     MUSIC: MUSIC_NAMES[s.music],
     HELP: 'HOW TO PLAY',
     START: '',
   };
   MENU.forEach((row, i) => {
-    const y = by + 10 + i * 14;
+    const y = rowY[i];
     const on = i === game.menuRow;
+    const section = MENU_SECTIONS[row];
+    if (section) drawText(ctx, section, bx + 20, y - 11, GREY);
     const teamRow = row.startsWith('TEAM');
     const col = teamRow && s.teams[+row.slice(5) - 1] ? TEAM_COLORS[+row.slice(5) - 1] : on ? YELLOW : WHITE;
     if (on) drawText(ctx, '>', bx + 10, y, YELLOW);
-    if (row === 'START') textC(ctx, 'START', W / 2, y, 1, on ? YELLOW : WHITE);
+    if (row === 'START') drawTextScaled(ctx, 'START', bx + 20, y - 2, 2, on ? YELLOW : WHITE);
     else {
       drawText(ctx, row, bx + 20, y, on ? YELLOW : WHITE);
       const v = values[row];

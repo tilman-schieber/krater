@@ -19,12 +19,14 @@ export type Phase = 'title' | 'play' | 'over' | 'help';
 export const TEAM_KINDS = ['OFF', 'HUMAN', 'CPU EASY', 'CPU NORMAL', 'CPU HARD'] as const;
 const SKILLS = [0, 0, 0.2, 0.55, 0.9];
 export const MAPS = ['RANDOM', ...THEMES.map((t) => t.name)];
-export const TIMES = [30, 45, 60];
+export const TIMES = [30, 45, 60, 0];
 export const SUDDEN = [0, 8, 15];
 export const MUSIC_NAMES = ['ON', 'OFF'];
 
-export const MENU = ['TEAM 1', 'TEAM 2', 'TEAM 3', 'TEAM 4', 'MOLES', 'MAP', 'WIND', 'TURN TIME', 'SUDDEN DEATH', 'MUSIC', 'HELP', 'START'] as const;
+export const MENU = ['START', 'TEAM 1', 'TEAM 2', 'TEAM 3', 'TEAM 4', 'MOLES', 'MAP', 'WIND', 'TURN TIME', 'SUDDEN DEATH', 'MUSIC', 'HELP'] as const;
 export type MenuRow = (typeof MENU)[number];
+/** Section headings over menu rows. */
+export const MENU_SECTIONS: Partial<Record<MenuRow, string>> = { 'TEAM 1': 'TEAMS', MOLES: 'RULES', MUSIC: 'MORE' };
 
 export interface GameSettings {
   teams: number[];
@@ -97,8 +99,9 @@ export class Game {
 
   private makeWorld(settings: Settings, mapIndex: number) {
     const theme = mapIndex > 0 ? THEMES[mapIndex - 1] : THEMES[Math.floor(this.rng() * THEMES.length)];
+    // Narrow enough to keep an overview: under two screens for two teams.
     const teams = settings.teams.length;
-    const w = 1600 + (teams - 2) * 320;
+    const w = 1100 + (teams - 2) * 300;
     return new World(settings, theme, makeRng(randomSeed()), w, 720);
   }
 
