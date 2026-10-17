@@ -29,6 +29,9 @@ const TERMINAL = 12;
 const FALL_SAFE = 7;
 const FALL_DMG = 10;
 const AIM_SPEED = 0.02;
+/** What a jump and a backflip take off the movement budget. */
+const JUMP_COST = 40;
+const FLIP_COST = 30;
 const MAX_HP = 100;
 const DEATH_FRAMES = 60;
 const TURN_INTRO = 90;
@@ -208,6 +211,8 @@ export interface Settings {
   turnSeconds: number;
   /** Turns until the water starts rising; 0 for never. */
   suddenDeath: number;
+  /** Pixels a mole may walk in a turn (jumps cost some too); 0 for no limit. */
+  moveLimit: number;
   /** Seconds a turn lasts; 0 for no clock. */
 }
 
@@ -236,6 +241,8 @@ export class World {
   timer = TURN_INTRO;
   /** Frames left in the turn. */
   turnLeft = 0;
+  /** Walking left in this turn, in pixels. */
+  moveLeft = 0;
   retreatLeft = 0;
   settleT = 0;
   /** Team turns taken. */
@@ -411,6 +418,7 @@ export class World {
     this.phase = 'intro';
     this.timer = TURN_INTRO;
     this.turnLeft = this.settings.turnSeconds * FPS;
+    this.moveLeft = this.settings.moveLimit;
     this.charge = 0;
     this.charging = false;
     this.shotsLeft = this.weapon.shots;
@@ -607,33 +615,42 @@ export class World {
     if (input.held.has('up')) m.aim = Math.min(Math.PI / 2, m.aim + AIM_SPEED);
     if (input.held.has('down')) m.aim = Math.max(-Math.PI / 2, m.aim - AIM_SPEED);
 
-    // Walk and jump, but not between the shotgun's barrels.
+    // Walk and jump, but not between the shotgun's barrels. The movement budget counts in the
+    // turn itself; the retreat is limited by its clock instead.
     const between = wp.id === 'shotgun' && this.shotsLeft < wp.shots && this.phase === 'move';
     if (between || !m.onGround) return;
-    if (input.pressed.has('jump')) {
+    const budget = this.phase === 'move' && this.settings.moveLimit > 0;
+    const canMove = !budget || this.moveLeft > 0;
+    if (input.pressed.has('jump') && canMove) {
       m.vx = m.facing * 2.2;
       m.vy = -4.2;
       m.onGround = false;
       m.anim = 'jump';
       m.animT = 0;
+      if (budget) this.moveLeft = Math.max(0, this.moveLeft - JUMP_COST);
       this.events.push('jump');
       return;
     }
-    if (input.pressed.has('flip')) {
+    if (input.pressed.has('flip') && canMove) {
       m.vx = -m.facing * 0.8;
       m.vy = -6.2;
       m.onGround = false;
       m.anim = 'flip';
       m.animT = 0;
+      if (budget) this.moveLeft = Math.max(0, this.moveLeft - FLIP_COST);
       this.events.push('jump');
       return;
     }
     const dir = input.held.has('left') ? -1 : input.held.has('right') ? 1 : 0;
     if (dir) {
       if (m.facing !== dir) m.facing = dir;
-      this.walk(m, dir);
-      m.anim = 'walk';
-      m.animT++;
+      if (canMove) {
+        const before = m.x;
+        this.walk(m, dir);
+        if (budget) this.moveLeft = Math.max(0, this.moveLeft - Math.abs(m.x - before));
+        m.anim = 'walk';
+        m.animT++;
+      } else if (m.anim === 'walk') m.anim = 'idle';
     } else if (m.anim === 'walk') m.anim = 'idle';
   }
 
@@ -973,10 +990,13 @@ export class World {
     for (const o of this.moles) {
       if (o === m || !o.alive) continue;
       const dx = o.x - m.x, dy = o.y - m.y;
-      if (Math.abs(dy) < HH && dx * m.facing > 0 && Math.abs(dx) < 26) {
+      if (Math.abs(dy) < HH && dx * m.facing > 0 && Math.abs(dx) < 28) {
         this.hurt(o, this.weapon.damage, 'bat', m.team);
-        o.vx = m.facing * 7 * Math.cos(m.aim) + m.facing * 2;
-        o.vy = -5 - 4 * Math.max(0, Math.sin(m.aim));
+        // The aim sets the angle, between a line drive and a high fly ball.
+        const a = Math.max(0.2, Math.min(1.2, m.aim));
+        const speed = 13;
+        o.vx = m.facing * speed * Math.cos(a);
+        o.vy = -speed * Math.sin(a) - 1;
         o.onGround = false;
         o.flying = true;
         o.rope = null;

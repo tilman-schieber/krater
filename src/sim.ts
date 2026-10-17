@@ -20,7 +20,7 @@ export interface SimResult {
   world: World;
 }
 
-export function simulate(opts: { seed?: number; teams?: number; moles?: number; skills?: number[]; theme?: number; maxFrames?: number; wind?: boolean } = {}): SimResult {
+export function simulate(opts: { seed?: number; teams?: number; moles?: number; skills?: number[]; theme?: number; maxFrames?: number; wind?: boolean; moveLimit?: number } = {}): SimResult {
   const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
   const n = opts.teams ?? 2;
   const skills = opts.skills ?? Array(n).fill(0.55);
@@ -28,6 +28,7 @@ export function simulate(opts: { seed?: number; teams?: number; moles?: number; 
     teams: Array.from({ length: n }, (_, i) => ({ cpu: true, skill: skills[i] ?? 0.55 })),
     molesPerTeam: opts.moles ?? 3,
     wind: opts.wind ?? true,
+    moveLimit: opts.moveLimit ?? 200,
     turnSeconds: 45,
     suddenDeath: 10,
   };

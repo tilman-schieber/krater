@@ -22,24 +22,53 @@ const SKILLS = [0, 0, 0.2, 0.55, 0.9];
 export const MAPS = ['RANDOM', ...THEMES.map((t) => t.name)];
 export const TIMES = [30, 45, 60, 0];
 export const SUDDEN = [0, 8, 15];
+export const MOVES = [0, 100, 200, 350];
+export const MOVE_NAMES = ['FREE', 'SHORT', 'NORMAL', 'LONG'];
 export const MUSIC_NAMES = ['ON', 'OFF'];
 
-export const MENU = ['START', 'TEAM 1', 'TEAM 2', 'TEAM 3', 'TEAM 4', 'MOLES', 'MAP', 'WIND', 'TURN TIME', 'SUDDEN DEATH', 'MUSIC', 'HELP'] as const;
+export const MENU = ['TEAM 1', 'TEAM 2', 'TEAM 3', 'TEAM 4', 'MOLES', 'MAP', 'WIND', 'MOVEMENT', 'TURN TIME', 'SUDDEN DEATH', 'MUSIC', 'HELP'] as const;
 export type MenuRow = (typeof MENU)[number];
-/** Section headings over menu rows. */
-export const MENU_SECTIONS: Partial<Record<MenuRow, string>> = { 'TEAM 1': 'TEAMS', MOLES: 'RULES', MUSIC: 'MORE' };
+/** The title screen's layout: the teams panel, the rules panel and the start button. */
+export const TITLE = {
+  teams: { x: 24, y: 84, w: 284, h: 198, top: 24, rowH: 42 },
+  rules: { x: 320, y: 84, w: 296, h: 198, top: 24, rowH: 20, gapBefore: 6 },
+  start: { x: W / 2 - 90, y: 294, w: 180, h: 36 },
+};
+/** Rows in the rules panel that have a gap above (a new group). */
+const RULES_GAP: MenuRow[] = ['MUSIC'];
+
+/** Screen y of a menu row's top. */
+export function menuRowY(i: number) {
+  if (i < 4) return TITLE.teams.y + TITLE.teams.top + i * TITLE.teams.rowH;
+  let y = TITLE.rules.y + TITLE.rules.top;
+  for (let k = 4; k < i; k++) y += TITLE.rules.rowH + (RULES_GAP.includes(MENU[k + 1]) ? TITLE.rules.gapBefore : 0);
+  return y;
+}
+
+/** The menu row under a screen point, 'start' for the button, or -1. */
+export function menuHit(sx: number, sy: number): number | 'start' {
+  const b = TITLE.start;
+  if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) return 'start';
+  for (let i = 0; i < MENU.length; i++) {
+    const p = i < 4 ? TITLE.teams : TITLE.rules;
+    const y = menuRowY(i);
+    if (sx >= p.x && sx <= p.x + p.w && sy >= y - 2 && sy < y + p.rowH - 2) return i;
+  }
+  return -1;
+}
 
 export interface GameSettings {
   teams: number[];
   moles: number;
   map: number;
   wind: boolean;
+  move: number;
   time: number;
   sudden: number;
   music: number;
 }
 
-const DEFAULTS: GameSettings = { teams: [1, 3, 0, 0], moles: 3, map: 0, wind: true, time: 1, sudden: 1, music: 0 };
+const DEFAULTS: GameSettings = { teams: [1, 3, 0, 0], moles: 3, map: 0, wind: true, move: 2, time: 1, sudden: 1, music: 0 };
 const KEY = 'krater.settings';
 
 function loadSettings(): GameSettings {
@@ -136,7 +165,7 @@ export class Game {
   }
 
   private startAttract() {
-    const settings: Settings = { teams: [{ cpu: true, skill: 0.6 }, { cpu: true, skill: 0.6 }], molesPerTeam: 2, wind: true, turnSeconds: 20, suddenDeath: 6 };
+    const settings: Settings = { teams: [{ cpu: true, skill: 0.6 }, { cpu: true, skill: 0.6 }], molesPerTeam: 2, wind: true, moveLimit: 200, turnSeconds: 20, suddenDeath: 6 };
     this.attract = this.makeWorld(settings, 0);
     this.attractBots = this.attract.teams.map((t) => new Bot(t.index, t.skill));
     this.cam = { x: this.attract.w / 2 - W / 2, y: this.attract.h - H };
@@ -153,6 +182,7 @@ export class Game {
       teams: teams.map((k) => ({ cpu: k >= 2, skill: SKILLS[k] })),
       molesPerTeam: s.moles,
       wind: s.wind,
+      moveLimit: MOVES[s.move],
       turnSeconds: TIMES[s.time],
       suddenDeath: SUDDEN[s.sudden],
     };
@@ -239,9 +269,28 @@ export class Game {
       this.menuRow = (this.menuRow + 1) % rows;
       sfx.move();
     }
-    const dir = input.pressed.has('right') ? 1 : input.pressed.has('left') ? -1 : 0;
-    const go = input.pressed.has('start') || input.pressed.has('fire');
+    // Enter starts the game from anywhere (on HELP it opens the help); Space changes the row.
+    // A click picks a row and changes it, or presses the start button.
+    let dir = input.pressed.has('right') ? 1 : input.pressed.has('left') ? -1 : 0;
+    let go = input.pressed.has('fire');
+    let start = input.pressed.has('start');
+    const p = input.pointer;
+    if (p?.click) {
+      const hit = menuHit(p.x, p.y);
+      if (hit === 'start') start = true;
+      else if (hit >= 0) {
+        if (this.menuRow !== hit) sfx.move();
+        this.menuRow = hit;
+        go = true;
+      }
+    }
     const row = MENU[this.menuRow];
+    if (start && row !== 'HELP') {
+      this.saveSettings();
+      this.start();
+      return;
+    }
+    if (start) go = true;
     if (dir || go) {
       const s = this.settings;
       const cyc = (v: number, n: number, d: number) => (v + d + n) % n;
@@ -264,6 +313,9 @@ export class Game {
         case 'WIND':
           s.wind = !s.wind;
           break;
+        case 'MOVEMENT':
+          s.move = cyc(s.move, MOVES.length, d);
+          break;
         case 'TURN TIME':
           s.time = cyc(s.time, TIMES.length, d);
           break;
@@ -277,13 +329,6 @@ export class Game {
           if (go) {
             this.phase = 'help';
             this.helpPage = 0;
-          }
-          break;
-        case 'START':
-          if (go) {
-            this.saveSettings();
-            this.start();
-            return;
           }
           break;
       }

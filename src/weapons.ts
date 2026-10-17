@@ -74,7 +74,7 @@ export const WEAPONS: Weapon[] = [
   W({ id: 'teleport', name: 'TELEPORT', use: 'cursor', ammo: 2, endsTurn: true, retreat: 0, blurb: 'GO ANYWHERE IN ONE BLINK.' }),
   W({ id: 'girder', name: 'GIRDER', use: 'cursor', ammo: 3, endsTurn: false, retreat: 0, blurb: 'A STEEL BEAM. UP/DOWN TURNS IT.' }),
   W({ id: 'rope', name: 'ROPE', use: 'instant', endsTurn: false, retreat: 0, blurb: 'HOOK ON AND SWING. FIRE AGAIN TO LET GO.' }),
-  W({ id: 'bat', name: 'BAT', use: 'instant', radius: 0, damage: 30, blurb: 'A SWING AT WHOEVER STANDS IN FRONT OF YOU.' }),
+  W({ id: 'bat', name: 'BAT', use: 'instant', radius: 0, damage: 35, blurb: 'A SWING THAT SENDS THEM FLYING. AIM SETS THE ANGLE.' }),
   W({ id: 'skip', name: 'SKIP', use: 'instant', retreat: 0, blurb: 'END THE TURN WITHOUT A SHOT.' }),
 ];
 

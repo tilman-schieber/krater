@@ -122,8 +122,8 @@ canvas.addEventListener('pointerdown', (e) => {
   drag = { x: p.x, y: p.y, moved: false, id: e.pointerId };
   game.dragging = true;
   canvas.setPointerCapture(e.pointerId);
-  // Taps on menus count as a press.
-  if (game.phase !== 'play') input.pressed.add('start');
+  // A tap on the winner card or a help page moves on; the title handles its own clicks.
+  if (game.phase === 'over' || game.phase === 'help') input.pressed.add('start');
 });
 canvas.addEventListener('pointermove', (e) => {
   const p = toScreen(e);
@@ -150,7 +150,7 @@ canvas.addEventListener(
 const endDrag = (e: PointerEvent) => {
   if (!drag || drag.id !== e.pointerId) return;
   const p = toScreen(e);
-  if (!drag.moved && game.phase === 'play') pointer = { x: p.x, y: p.y, click: true };
+  if (!drag.moved) pointer = { x: p.x, y: p.y, click: true };
   drag = null;
   game.dragging = false;
 };

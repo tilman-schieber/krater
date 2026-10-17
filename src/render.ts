@@ -2,10 +2,10 @@
 // screens. Nothing here changes the game.
 import { drawText, drawTextCentered, drawTextScaled, drawTextShadow, textWidth } from 'arcade-kit/font';
 import { Ctx, WHITE, RED, GREY, LIGHT, DARK, YELLOW, GOLD, BLUE, GREEN, drawBox, disc } from 'arcade-kit/draw';
-import { Game, W, H, MENU, MENU_SECTIONS, MenuRow, TEAM_KINDS, MAPS, TIMES, SUDDEN, MUSIC_NAMES, PANEL } from './game';
+import { Game, W, H, MENU, MenuRow, TEAM_KINDS, MAPS, TIMES, SUDDEN, MOVE_NAMES, MUSIC_NAMES, PANEL, TITLE, menuRowY } from './game';
 import { World, Mole, Proj, HH, MID, FPS, WEAPON_ORDER } from './world';
 import { weapon } from './weapons';
-import { spr, frames, flipped, rotated, teamed, white, drawAt, TEAM_COLORS, Sprite } from './sprites';
+import { spr, frames, flipped, rotated, teamed, white, drawAt, TEAM_COLORS, TEAM_NAMES, Sprite } from './sprites';
 import { HELP_PAGES, wrapText } from './help';
 
 export { W, H };
@@ -368,6 +368,18 @@ function drawHud(ctx: Ctx, game: Game, w: World) {
     textC(ctx, String(secs).padStart(2, ' '), 34, 14, 3, col);
     if (w.phase === 'retreat') drawTextCentered(ctx, 'RUN', 34, 40, YELLOW);
   }
+  // Movement left this turn, under the clock.
+  if (w.phase === 'move' && w.settings.moveLimit > 0) {
+    const y = w.settings.turnSeconds ? 50 : 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(8, y - 2, 52, 12);
+    ctx.fillStyle = DARK;
+    ctx.fillRect(10, y, 48, 8);
+    const f = w.moveLeft / w.settings.moveLimit;
+    ctx.fillStyle = f > 0.5 ? GREEN : f > 0.2 ? YELLOW : RED;
+    ctx.fillRect(10, y, Math.round(48 * f), 8);
+    drawText(ctx, 'MOVE', 11, y + 1, f > 0.2 ? '#000' : LIGHT);
+  }
   // Wind, top centre.
   if (w.settings.wind) {
     const gx = W / 2 - 60, gy = 10;
@@ -494,24 +506,27 @@ function drawLogo(ctx: Ctx, frame: number, y: number) {
   ctx.restore();
 }
 
+/** A soft translucent panel with a light edge. */
+function panel(ctx: Ctx, x: number, y: number, w: number, h: number) {
+  ctx.fillStyle = 'rgba(0,0,0,0.62)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 6);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 6);
+  ctx.stroke();
+}
+
 function renderTitle(ctx: Ctx, game: Game) {
   const a = game.attract!;
   drawScene(ctx, a, game.view(), game.frame, false);
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fillRect(0, 0, W, H);
-  drawLogo(ctx, game.frame, 14);
-  textC(ctx, 'MOLES WITH BAZOOKAS', W / 2, 70, 1, LIGHT);
+  drawLogo(ctx, game.frame, 10);
+  textC(ctx, 'MOLES WITH BAZOOKAS', W / 2, 64, 1, LIGHT);
   const s = game.settings;
-  const bx = W / 2 - 150, by = 82;
-  // Rows, with a heading and a gap where a section starts.
-  const rowY: number[] = [];
-  let y = by + 10;
-  MENU.forEach((row) => {
-    if (MENU_SECTIONS[row]) y += 14;
-    rowY.push(y);
-    y += 12;
-  });
-  drawBox(ctx, bx, by, 300, y - by + 6);
   const values: Record<MenuRow, string> = {
     'TEAM 1': TEAM_KINDS[s.teams[0]],
     'TEAM 2': TEAM_KINDS[s.teams[1]],
@@ -520,31 +535,80 @@ function renderTitle(ctx: Ctx, game: Game) {
     MOLES: `${s.moles} PER TEAM`,
     MAP: MAPS[s.map],
     WIND: s.wind ? 'ON' : 'OFF',
+    MOVEMENT: MOVE_NAMES[s.move],
     'TURN TIME': TIMES[s.time] ? `${TIMES[s.time]} SEC` : 'OFF',
     'SUDDEN DEATH': s.sudden ? `AFTER ${SUDDEN[s.sudden]} TURNS` : 'OFF',
     MUSIC: MUSIC_NAMES[s.music],
     HELP: 'HOW TO PLAY',
-    START: '',
   };
-  MENU.forEach((row, i) => {
-    const y = rowY[i];
-    const on = i === game.menuRow;
-    const section = MENU_SECTIONS[row];
-    if (section) drawText(ctx, section, bx + 20, y - 11, GREY);
-    const teamRow = row.startsWith('TEAM');
-    const col = teamRow && s.teams[+row.slice(5) - 1] ? TEAM_COLORS[+row.slice(5) - 1] : on ? YELLOW : WHITE;
-    if (on) drawText(ctx, '>', bx + 10, y, YELLOW);
-    if (row === 'START') drawTextScaled(ctx, 'START', bx + 20, y - 2, 2, on ? YELLOW : WHITE);
-    else {
-      drawText(ctx, row, bx + 20, y, on ? YELLOW : WHITE);
-      const v = values[row];
-      drawText(ctx, v, bx + 290 - textWidth(v) - 8, y, col);
+  const highlight = (x: number, y: number, w: number, h: number) => {
+    ctx.fillStyle = 'rgba(248,216,56,0.16)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = YELLOW;
+    ctx.fillRect(x, y, 2, h);
+  };
+
+  // Teams: a mole in each team's colour, who plays it.
+  const tp = TITLE.teams;
+  panel(ctx, tp.x, tp.y, tp.w, tp.h);
+  drawText(ctx, 'TEAMS', tp.x + 12, tp.y + 8, GREY);
+  const stand = frames('mole/idle');
+  for (let i = 0; i < 4; i++) {
+    const y = menuRowY(i);
+    const on = game.menuRow === i;
+    const kind = s.teams[i];
+    if (on) highlight(tp.x + 4, y - 2, tp.w - 8, tp.rowH - 2);
+    const sprite = teamed(stand[Math.floor((game.frame / 12 + i * 3) % stand.length)] ?? spr('mole/stand'), `title:${i}`, i);
+    ctx.globalAlpha = kind ? 1 : 0.3;
+    ctx.drawImage(sprite, tp.x + 12, y - 4);
+    ctx.globalAlpha = 1;
+    drawTextScaled(ctx, TEAM_NAMES[i], tp.x + 60, y + 4, 2, kind ? TEAM_COLORS[i] : GREY);
+    const v = values[MENU[i]];
+    const vx = tp.x + tp.w - 16 - textWidth(v) * (on ? 1 : 1);
+    drawText(ctx, v, vx, y + 22, kind === 0 ? GREY : kind === 1 ? WHITE : BLUE);
+    if (on) {
+      drawText(ctx, '<', vx - 12, y + 22, YELLOW);
+      drawText(ctx, '>', tp.x + tp.w - 12, y + 22, YELLOW);
     }
-  });
+  }
+
+  // Rules.
+  const rp = TITLE.rules;
+  panel(ctx, rp.x, rp.y, rp.w, rp.h);
+  drawText(ctx, 'RULES', rp.x + 12, rp.y + 8, GREY);
+  for (let i = 4; i < MENU.length; i++) {
+    const row = MENU[i];
+    const y = menuRowY(i);
+    const on = game.menuRow === i;
+    if (on) highlight(rp.x + 4, y - 3, rp.w - 8, rp.rowH - 2);
+    drawText(ctx, row, rp.x + 14, y + 3, on ? YELLOW : WHITE);
+    const v = values[row];
+    const vx = rp.x + rp.w - 24 - textWidth(v);
+    drawText(ctx, v, vx, y + 3, on ? YELLOW : LIGHT);
+    if (on) {
+      drawText(ctx, '<', vx - 10, y + 3, YELLOW);
+      drawText(ctx, '>', rp.x + rp.w - 18, y + 3, YELLOW);
+    }
+  }
+
+  // The start button.
+  const b = TITLE.start;
+  const ready = s.teams.filter((k) => k > 0).length >= 2;
+  const pulse = 0.6 + 0.4 * Math.sin(game.frame * 0.08);
+  ctx.fillStyle = ready ? `rgba(248,56,0,${0.55 + 0.25 * pulse})` : 'rgba(60,60,60,0.7)';
+  ctx.beginPath();
+  ctx.roundRect(b.x, b.y, b.w, b.h, 8);
+  ctx.fill();
+  ctx.strokeStyle = ready ? YELLOW : GREY;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 8);
+  ctx.stroke();
+  textC(ctx, ready ? 'START' : 'TWO TEAMS NEEDED', W / 2, b.y + (ready ? 8 : 14), ready ? 3 : 1, ready ? WHITE : LIGHT);
+
   const humans = s.teams.filter((k) => k === 1).length;
-  const hint = s.teams.filter((k) => k > 0).length < 2 ? 'TURN ON AT LEAST TWO TEAMS' : humans > 1 ? 'HUMANS SHARE THE KEYBOARD, TURN BY TURN' : 'ARROWS CHOOSE, ENTER STARTS';
-  if (game.frame % 60 < 45) drawTextCentered(ctx, hint, W / 2, H - 50, LIGHT);
-  drawTextCentered(ctx, 'ESC PAUSES   Z ZOOMS   M MUSIC   H HELP', W / 2, H - 36, GREY);
+  const hint = humans > 1 ? 'HUMANS SHARE THE KEYBOARD, TURN BY TURN' : 'ARROWS CHANGE   ENTER STARTS   H HELP   M MUSIC';
+  drawTextCentered(ctx, hint, W / 2, H - 20, GREY);
 }
 
 function renderHelp(ctx: Ctx, game: Game) {

@@ -20,7 +20,7 @@ interface Shot {
 
 type Plan =
   | { kind: 'shoot'; shot: Shot; state: 'turn' | 'aim' | 'charge' | 'wait'; t: number }
-  | { kind: 'walk'; dir: 1 | -1; t: number; stuck: number; lastX: number }
+  | { kind: 'walk'; dir: 1 | -1; t: number; stuck: number; lastX: number; jumped: boolean }
   | { kind: 'wait'; t: number }
   | { kind: 'skip' };
 
@@ -81,12 +81,28 @@ export class Bot {
     const best = this.bestShot(w, m);
     const threshold = this.walks >= 2 ? 1 : 12;
     if (best && best.score >= threshold) return { kind: 'shoot', shot: best, state: 'turn', t: 0 };
-    if (this.walks >= 2) return best && best.score > 0 ? { kind: 'shoot', shot: best, state: 'turn', t: 0 } : { kind: 'skip' };
-    // Walk toward the nearest enemy for a while, then look again.
+    // Out of walks or out of budget: take what there is, or lob one toward the enemy anyway.
+    const settle = (): Plan => ({ kind: 'shoot', shot: best && best.score > 0 ? best : this.lob(w, m), state: 'turn', t: 0 });
+    if (this.walks >= 2) return settle();
+    if (w.settings.moveLimit > 0 && w.moveLeft < 20) {
+      this.walks = 2;
+      return settle();
+    }
     const e = this.nearestEnemy(w, m);
     this.walks++;
     const dir: 1 | -1 = e ? (e.x > m.x ? 1 : -1) : m.facing;
-    return { kind: 'walk', dir, t: 60 + Math.round(w.rng() * 60), stuck: 0, lastX: m.x };
+    let t = 60 + Math.round(w.rng() * 60);
+    if (w.settings.moveLimit > 0) t = Math.min(t, w.moveLeft);
+    return { kind: 'walk', dir, t, stuck: 0, lastX: m.x, jumped: false };
+  }
+
+  /** A bazooka shot in the general direction of the nearest enemy: better than standing still. */
+  private lob(w: World, m: Mole): Shot {
+    const e = this.nearestEnemy(w, m);
+    const dx = e ? e.x - m.x : m.facing * 300;
+    const facing: 1 | -1 = dx >= 0 ? 1 : -1;
+    const power = Math.max(0.35, Math.min(1, Math.abs(dx) / 650 + (w.rng() - 0.5) * 0.2));
+    return { weapon: w.team.ammo.bazooka === 0 ? 'grenade' : 'bazooka', facing, aim: 0.75 + (w.rng() - 0.5) * 0.3, power, fuse: 3, score: 0 };
   }
 
   private enemies(w: World) {
@@ -318,8 +334,15 @@ export class Bot {
     else p.stuck = 0;
     p.lastX = m.x;
     if (p.stuck > 8 && m.onGround) {
-      input.pressed.add('jump');
-      p.stuck = 0;
+      if (!p.jumped) {
+        // One jump over whatever is in the way; if that fails too, it is a wall: stop walking.
+        input.pressed.add('jump');
+        p.jumped = true;
+        p.stuck = 0;
+      } else {
+        this.plan = { kind: 'wait', t: 5 };
+        this.walks = 2;
+      }
     }
   }
 
