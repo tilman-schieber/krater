@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // KRATER walk test: a mole walks across generated maps, left and right, and every stop is listed
 // with the terrain in front of it. For checking the walking collision after physics or terrain
-// changes: stops should only be walls, low ceilings and the water.
+// changes: stops should only be walls, low ceilings, the water and the map's ends.
 //
 //   node tools/walktest.mjs [--maps N] [--url URL]
 //
@@ -80,7 +80,7 @@ try {
           }
         }
         if (still >= 2) stalls.push({ ...start, frames: still, resolved: false });
-        res.push({ seed, dir, alive: m.alive, phase: w.phase, stalls });
+        res.push({ seed, dir, alive: m.alive, phase: w.phase, stalls, w: w.w });
       }
     return res;
   }, maps);
@@ -89,10 +89,11 @@ try {
   for (const r of out) {
     for (const s of r.stalls) {
       if (s.resolved) transient++;
+      if (s.x <= 8 || s.x >= r.w - 8) continue;
       console.log(`map ${r.seed} ${r.dir > 0 ? 'right' : 'left '} x=${s.x} y=${s.y} ${s.onGround ? 'ground' : 'air   '} ${s.resolved ? `stalled ${s.frames} frames` : 'STOPPED'}  surface ahead (rows below the feet): ${s.ahead.join(' ')}`);
     }
     if (!r.alive) ends.drowned++;
-    else if (r.stalls.some((s) => !s.resolved)) ends.stopped++;
+    else if (r.stalls.some((s) => !s.resolved && s.x > 8 && s.x < r.w - 8)) ends.stopped++;
     else ends.mapEdge++;
   }
   console.log(`\n${out.length} walks: ${ends.drowned} ended in the water, ${ends.stopped} at an obstacle, ${ends.mapEdge} at the map edge; ${transient} passing stalls`);

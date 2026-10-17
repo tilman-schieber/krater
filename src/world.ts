@@ -26,6 +26,8 @@ export const MID = 12;
 const WALK = 1;
 /** Half the width of the feet and body for walking collisions: narrower than the sprite, like a worm's. */
 const FOOT = 4;
+/** No mole starts closer than this to the map's ends (on the rim). */
+const SPAWN_MARGIN = 160;
 const CLIMB = 5;
 const DROP = 5;
 const TERMINAL = 12;
@@ -336,7 +338,7 @@ export class World {
   private spotNear(x: number, taken: number[], gap: number) {
     for (let d = 0; d < 400; d += 6)
       for (const xx of d ? [x - d, x + d] : [x]) {
-        if (xx < 30 || xx > this.w - 30) continue;
+        if (xx < SPAWN_MARGIN || xx > this.w - SPAWN_MARGIN) continue;
         if (taken.some((s) => Math.abs(s - xx) < gap)) continue;
         const g = this.terrain.groundBelow(xx, 0);
         if (g < 0 || g > this.waterY - 30) continue;
@@ -745,6 +747,8 @@ export class World {
    * box saw a single pixel at one position and not at the next, and stopped the walk at random.
    */
   private bodyFree(x: number, y: number) {
+    // The map's ends are walls: the rim is there to be stood on, not walked off.
+    if (x - FOOT < 0 || x + FOOT >= this.w) return false;
     const t = this.terrain;
     for (let yy = y - HH; yy < y; yy++) for (let dx = -FOOT; dx <= FOOT; dx++) if (t.isSolid(x + dx, yy)) return false;
     return true;

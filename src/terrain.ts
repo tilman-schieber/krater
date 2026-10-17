@@ -10,6 +10,10 @@ export const AIR = 0;
 export const EARTH = 1;
 export const STEEL = 2;
 
+/** Width of the raised rim at each end of the map, and its height as a share of the terrain's range. */
+const RIM_W = 170;
+const RIM_H = 0.78;
+
 /** The surface rim is this many pixels deep below the top edge. */
 const RIM = 5;
 
@@ -75,11 +79,14 @@ export class Terrain {
     for (let x = 0; x < w; x++) {
       const t = x / w;
       let r = n1(t * 5) * 0.6 + n2(t * 12) * 0.3 + n3(t * 36) * 0.1;
-      // Ground slopes into the water at both ends, and dips where the gap noise is very low.
-      const edge = Math.min(1, Math.min(x, w - 1 - x) / 140);
+      // Dips to the water where the gap noise is very low, but not near the ends: both ends rise
+      // into a rim of high ground, so a mole knocked outward lands on it instead of in the sea.
+      const d = Math.min(x, w - 1 - x) / RIM_W;
+      const rim = d >= 1 ? 0 : (1 - d) * (1 - d) * (3 - 2 * (1 - d));
       const g = gaps(t * 4);
       const dip = g < 0.14 ? (0.14 - g) / 0.14 : 0;
-      r = (0.15 + r * 0.85) * edge - dip * 1.2 + (1 - edge) * -0.25;
+      r = 0.15 + r * 0.85 - dip * 1.2 * (1 - rim);
+      r = r * (1 - rim) + (RIM_H + n2(t * 12) * 0.15) * rim;
       surface[x] = base - r * (base - top);
     }
     for (let x = 0; x < w; x++) for (let y = Math.max(0, Math.floor(surface[x])); y < h; y++) this.solid[y * w + x] = EARTH;
