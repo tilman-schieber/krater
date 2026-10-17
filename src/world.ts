@@ -81,6 +81,8 @@ export interface Mole {
   /** Damage taken this turn, shown once things settle. */
   hurtBy: number;
   hurtShow: number;
+  /** Who hit it last this turn, for the credit when it falls in the water. */
+  lastHit: { cause: string; from: number } | null;
 }
 
 export interface Team {
@@ -171,6 +173,9 @@ export interface Plane {
 const PLANE_Y = 30;
 const PLANE_SPEED = 5;
 const BOMB_VX = 2.4;
+/** A cluster's bomblets. */
+export const BOMBLET_R = 18;
+export const BOMBLET_DMG = 15;
 
 export interface Float {
   x: number;
@@ -181,6 +186,18 @@ export interface Float {
 }
 
 export type Phase = 'intro' | 'move' | 'retreat' | 'settle' | 'over';
+
+/** What a weapon did over a battle, for balancing. */
+export interface WeaponStat {
+  /** Turns it was used in. */
+  uses: number;
+  /** Damage to other teams, and to the user's own. */
+  dealt: number;
+  self: number;
+  /** Moles it finished (by damage) and knocked into the water. */
+  kills: number;
+  drowns: number;
+}
 
 export type Event =
   | 'fire'
@@ -267,6 +284,8 @@ export class World {
   frame = 0;
   /** A hot-seat handover: a human team just got the turn. */
   handover = false;
+  /** Per weapon (and 'fall', 'death', 'crate'), what it did. */
+  stats: Record<string, WeaponStat> = {};
   private nextId = 1;
 
   constructor(
@@ -340,12 +359,17 @@ export class World {
           rope: null,
           hurtBy: 0,
           hurtShow: 0,
+          lastHit: null,
         });
       }
   }
 
   private rollWind() {
     this.wind = this.settings.wind ? Math.round((this.rng() * 2 - 1) * 10) / 10 : 0;
+  }
+
+  stat(cause: string) {
+    return (this.stats[cause] ??= { uses: 0, dealt: 0, self: 0, kills: 0, drowns: 0 });
   }
 
   // ---------- queries ----------
@@ -453,6 +477,7 @@ export class World {
   private betweenTurns() {
     for (const m of this.moles) {
       m.hurtBy = 0;
+      m.lastHit = null;
     }
     if (this.suddenDeath) {
       this.waterY -= WATER_RISE;
@@ -754,13 +779,17 @@ export class World {
         if (dx !== 0) {
           const nx = m.x + dx;
           let moved = false;
+          // A step up only onto ground (a ledge), never into the air: a floating climb would
+          // cancel the fall and hang the mole in mid-air.
+          const ledge = (y: number) => t.isSolid(nx - HW + 2, y) || t.isSolid(nx, y) || t.isSolid(nx + HW - 2, y);
           for (let up = 0; up <= 4 && !moved; up++)
-            if (t.boxFree(nx, m.y - up, HW, HH)) {
+            if (t.boxFree(nx, m.y - up, HW, HH) && (up === 0 || ledge(m.y - up))) {
               m.x = nx;
               m.y -= up;
               moved = true;
             }
           if (!moved) m.vx = m.flying ? -m.vx * 0.4 : 0;
+          if (Math.abs(m.vx) < 0.05) m.vx = 0;
         }
         const ny = m.y + dy;
         if (dy > 0) {
@@ -790,10 +819,10 @@ export class World {
       // Tumble: bounce a little and slide.
       m.vy = -speed * 0.35;
       m.vx *= 0.6;
-      if (speed > FALL_SAFE) this.hurt(m, Math.round((speed - FALL_SAFE) * FALL_DMG * 0.6), 'fall');
+      if (speed > FALL_SAFE) this.hurt(m, Math.round((speed - FALL_SAFE) * FALL_DMG * 0.6), 'fall', m.lastHit?.from, m.lastHit?.cause ?? 'fall');
       return;
     }
-    if (speed > FALL_SAFE) this.hurt(m, Math.round((speed - FALL_SAFE) * FALL_DMG), 'fall');
+    if (speed > FALL_SAFE) this.hurt(m, Math.round((speed - FALL_SAFE) * FALL_DMG), 'fall', m.lastHit?.from, m.lastHit?.cause ?? 'fall');
     m.vy = 0;
     m.vx = 0;
     m.onGround = true;
@@ -806,15 +835,25 @@ export class World {
     m.drowning = 90;
     m.hp = 0;
     m.rope = null;
+    if (m.lastHit && m.lastHit.from >= 0 && m.lastHit.from !== m.team) {
+      this.teams[m.lastHit.from].kills++;
+      this.stat(m.lastHit.cause).drowns++;
+    }
     this.events.push('splash');
     this.splash(m.x, this.waterY, 14);
     if (this.activeMole === m) this.endTurn();
   }
 
-  /** Damage from a blast, a fall or a bat; kills if it is enough. */
-  hurt(m: Mole, dmg: number, by: 'blast' | 'fall' | 'bat', from?: number) {
+  /** Damage from a blast, a fall or a bat; kills if it is enough. `cause` names the weapon. */
+  hurt(m: Mole, dmg: number, by: 'blast' | 'fall' | 'bat', from?: number, cause: string = by) {
     if (!m.alive || dmg <= 0 || m.dying > 0) return;
     m.hp = Math.max(0, m.hp - dmg);
+    const st = this.stat(cause);
+    if (from !== undefined && from >= 0) {
+      if (from !== m.team) st.dealt += dmg;
+      else st.self += dmg;
+      m.lastHit = { cause, from };
+    }
     m.hurtBy += dmg;
     m.hurtShow = 90;
     m.flash = 8;
@@ -828,10 +867,12 @@ export class World {
       m.anim = 'death';
       m.animT = 0;
       m.rope = null;
-      if (from !== undefined && from >= 0 && from !== m.team) this.teams[from].kills++;
+      if (from !== undefined && from >= 0 && from !== m.team) {
+        this.teams[from].kills++;
+        st.kills++;
+      }
       if (this.activeMole === m) this.endTurn();
     }
-    void by;
   }
 
   /** The end of the death animation: a last blast and a grave. */
@@ -839,7 +880,7 @@ export class World {
     m.alive = false;
     this.graves.push({ x: m.x, y: m.y, team: m.team });
     this.events.push('death');
-    this.explode(m.x, m.y - MID, 30, 25, -1, m.id);
+    this.explode(m.x, m.y - MID, 30, 25, -1, m.id, 30 / 42, 'death');
   }
 
   // ---------- rope ----------
@@ -977,7 +1018,7 @@ export class World {
       if (y > this.waterY) return this.splash(x, this.waterY, 6);
       if (x < -50 || x > this.w + 50) return;
       if (t.isSolid(x, y) || this.moleAt(x, y, m.id)) {
-        this.explode(x, y, this.weapon.radius, this.weapon.damage, m.team, m.id, 0.5);
+        this.explode(x, y, this.weapon.radius, this.weapon.damage, m.team, m.id, 0.5, 'shotgun');
         return;
       }
     }
@@ -991,7 +1032,7 @@ export class World {
       if (o === m || !o.alive) continue;
       const dx = o.x - m.x, dy = o.y - m.y;
       if (Math.abs(dy) < HH && dx * m.facing > 0 && Math.abs(dx) < 28) {
-        this.hurt(o, this.weapon.damage, 'bat', m.team);
+        this.hurt(o, this.weapon.damage, 'bat', m.team, 'bat');
         // The aim sets the angle, between a line drive and a high fly ball.
         const a = Math.max(0.2, Math.min(1.2, m.aim));
         const speed = 13;
@@ -1070,6 +1111,7 @@ export class World {
 
   private spend(wp: Weapon) {
     const team = this.team;
+    if (this.shotsLeft === wp.shots) this.stat(wp.id).uses++;
     if (team.ammo[wp.id] > 0 && this.shotsLeft === wp.shots) team.ammo[wp.id]--;
   }
 
@@ -1168,11 +1210,12 @@ export class World {
       if (r === 'gone') continue;
       // Explode.
       const owner = this.moles.find((m) => m.id === p.owner);
-      this.explode(p.x, p.y, p.radius, p.damage, owner?.team ?? -1, -1);
+      const cause = p.kind === 'bomb' ? 'airstrike' : p.kind === 'bomblet' ? 'cluster' : p.kind;
+      this.explode(p.x, p.y, p.radius, p.damage, owner?.team ?? -1, -1, p.radius / 42, cause);
       if (p.split) {
         for (let k = 0; k < 5; k++) {
-          const a = -Math.PI / 2 + (k - 2) * 0.35 + (this.rng() - 0.5) * 0.2;
-          const s = 3.5 + this.rng() * 1.5;
+          const a = -Math.PI / 2 + (k - 2) * 0.45 + (this.rng() - 0.5) * 0.25;
+          const s = 3 + this.rng() * 2.5;
           this.projs.push({
             kind: 'bomblet',
             x: p.x,
@@ -1180,8 +1223,8 @@ export class World {
             vx: Math.cos(a) * s,
             vy: Math.sin(a) * s,
             fuse: -1,
-            radius: 20,
-            damage: 20,
+            radius: BOMBLET_R,
+            damage: BOMBLET_DMG,
             bounce: false,
             wind: false,
             owner: p.owner,
@@ -1293,7 +1336,7 @@ export class World {
     return out;
   }
 
-  explode(x: number, y: number, r: number, dmg: number, byTeam: number, except: number, scale = r / 42) {
+  explode(x: number, y: number, r: number, dmg: number, byTeam: number, except: number, scale = r / 42, cause = 'blast') {
     this.terrain.carve(x, y, r);
     this.explosions.push({ x, y, r, t: 0, scale: Math.max(0.4, scale) });
     this.events.push(r >= 60 ? 'bigboom' : r <= 16 ? 'smallboom' : 'boom');
@@ -1310,7 +1353,7 @@ export class World {
       m.onGround = false;
       m.flying = true;
       m.rope = null;
-      this.hurt(m, d, 'blast', byTeam);
+      this.hurt(m, d, 'blast', byTeam, cause);
     }
     // Crates in the blast go up too; a weapon crate takes its neighbours with it.
     for (const c of this.crates) {
@@ -1318,7 +1361,7 @@ export class World {
       if (Math.hypot(c.x - x, c.y - 8 - y) < r + 8) {
         const cx = c.x, cy = c.y - 8;
         c.y = this.waterY + 100;
-        if (c.kind === 'weapon') this.explode(cx, cy, 30, 30, byTeam, -1);
+        if (c.kind === 'weapon') this.explode(cx, cy, 30, 30, byTeam, -1, 30 / 42, 'crate');
       }
     }
   }
@@ -1359,6 +1402,10 @@ function onBar(px: number, py: number, cx: number, cy: number, len: number, thic
   const u = dx * c + dy * s, v = -dx * s + dy * c;
   return Math.abs(u) <= len / 2 + HW && Math.abs(v) <= thick / 2;
 }
+
+/** Map size for a number of teams: narrow enough to keep an overview, under two screens for two. */
+export const mapWidth = (teams: number) => 1100 + (teams - 2) * 300;
+export const MAP_H = 720;
 
 /** The weapons as the panel lists them. */
 export const WEAPON_ORDER: WeaponId[] = ['bazooka', 'grenade', 'cluster', 'shotgun', 'dynamite', 'airstrike', 'teleport', 'girder', 'rope', 'bat', 'skip'];

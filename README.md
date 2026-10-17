@@ -17,7 +17,7 @@ Tab opens the panel. Most are unlimited; the rarer ones come a few per game and 
 | Bazooka | Blows up on contact. The wind bends it. |
 | Grenade | Bounces, goes off when the fuse runs out; 1-5 set the fuse. |
 | Cluster | A grenade that bursts into five bomblets. |
-| Shotgun | Two straight shots; aim again in between. |
+| Shotgun | Two straight shots of 30; aim again in between. |
 | Dynamite | Dropped at your feet, five seconds. Run. |
 | Airstrike | Five bombs on a mark, from the side you point at. Open sky only. |
 | Teleport | Anywhere in one blink. Ends the turn. |
@@ -62,3 +62,11 @@ npm run build
 ```
 
 Add `?debug` to the URL for the camera and phase readout. In a dev build the console has `game` and `sim(opts)`, which plays a CPU battle without a screen and returns the result (`sim({ seed: 1, teams: 4 })`); the world it ended with is in `.world`.
+
+For balancing, `npm run playtest` has CPU teams fight many games headless: it starts Vite, opens the dev build in headless Chromium (`puppeteer-core`; set `CHROMIUM` if the browser isn't `/usr/bin/chromium`) and calls `sim()` once per game, thirty games in about fifteen seconds. It prints how long games run, who wins by seat and by skill, and a table per weapon: turns used, damage per use to the other teams and to the user's own, kills and water knock-ins per use, and each weapon's share of all damage. Runs are reproducible by seed; every game goes in full to `tools/playtest/out/`. `npm run playtest -- --help` lists the options.
+
+```sh
+npm run playtest -- --games 40 --teams mix            # 2, 3 and 4 teams in turn, skill 0.7
+npm run playtest -- --games 30 --skills 0.2,0.9      # easy against hard: does skill matter?
+npm run playtest -- --games 30 --move 0 --wind off   # a rules variant
+```

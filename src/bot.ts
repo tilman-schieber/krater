@@ -3,7 +3,7 @@
 // airstrike), scores each by the damage it would do to the enemy minus what it would do to its
 // own side, and takes the best. If nothing is worth firing, it walks toward the nearest enemy
 // and looks again. Skill blurs the chosen angle and power and thins the search.
-import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS } from './world';
+import { World, Mole, Proj, Input, Action, MID, HH, CHARGE_FRAMES, FPS, BOMBLET_R, BOMBLET_DMG } from './world';
 import { WeaponId, weapon } from './weapons';
 
 interface Shot {
@@ -137,6 +137,17 @@ export class Bot {
   }
 
   private bestShot(w: World, m: Mole): Shot | null {
+    // Lesser bots misjudge the wind: they try their shots with only part of it.
+    const wind = w.wind;
+    w.wind = wind * Math.min(1, this.skill / 0.8);
+    try {
+      return this.bestShotIn(w, m);
+    } finally {
+      w.wind = wind;
+    }
+  }
+
+  private bestShotIn(w: World, m: Mole): Shot | null {
     const team = w.teams[this.team];
     const cands: Shot[] = [];
     const push = (s: Shot | null) => s && cands.push(s);
@@ -187,15 +198,17 @@ export class Bot {
         let open = true;
         for (let y = e.y - HH; y > -60; y -= 4) if (w.terrain.isSolid(e.x, y)) open = false;
         if (!open) continue;
-        const score = this.scoreBlast(w, e.x, e.y - MID, 30, 30, m) * 2 + this.scoreBlast(w, e.x - 22, e.y - MID, 30, 30, m) + this.scoreBlast(w, e.x + 22, e.y - MID, 30, 30, m);
+        const wp = weapon('airstrike');
+        const score = this.scoreBlast(w, e.x, e.y - MID, wp.radius, wp.damage, m) * 2 + this.scoreBlast(w, e.x - 22, e.y - MID, wp.radius, wp.damage, m) + this.scoreBlast(w, e.x + 22, e.y - MID, wp.radius, wp.damage, m);
         if (score > 20) push({ weapon: 'airstrike', facing: m.facing, aim: 0, power: 0, fuse: 0, score, cursor: { x: e.x, y: e.y - 40 } });
       }
     if (!cands.length) return null;
     cands.sort((a, b) => b.score - a.score);
-    // Lesser bots don't always pick the best of what they saw.
-    const pick = cands[Math.min(cands.length - 1, Math.floor(w.rng() * (1 - this.skill) * 4))];
-    const blur = (1 - this.skill) * 0.9;
-    return { ...pick, aim: pick.aim + (w.rng() - 0.5) * 0.16 * blur, power: Math.min(1, Math.max(0.1, pick.power + (w.rng() - 0.5) * 0.16 * blur)) };
+    // Lesser bots don't always pick the best of what they saw, and their hands shake.
+    const slack = 1 - this.skill;
+    const pick = cands[Math.min(cands.length - 1, Math.floor(w.rng() * slack * 16))];
+    const blur = 0.35 * slack;
+    return { ...pick, aim: pick.aim + (w.rng() - 0.5) * blur, power: Math.min(1, Math.max(0.1, pick.power + (w.rng() - 0.5) * blur)) };
   }
 
   /** The first mole a straight shot would hit, or null (terrain or nothing). */
@@ -240,12 +253,12 @@ export class Bot {
       let s = this.scoreBlast(w, p.x, p.y, p.radius, p.damage, m);
       if (p.split) {
         for (let k = 0; k < 5; k++) {
-          const a = -Math.PI / 2 + (k - 2) * 0.35;
-          const b: Proj = { ...p, kind: 'bomblet', vx: Math.cos(a) * 4.2, vy: Math.sin(a) * 4.2, fuse: -1, radius: 20, damage: 20, bounce: false, split: false, age: 10, y: p.y - 2 };
+          const a = -Math.PI / 2 + (k - 2) * 0.45;
+          const b: Proj = { ...p, kind: 'bomblet', vx: Math.cos(a) * 4.2, vy: Math.sin(a) * 4.2, fuse: -1, radius: BOMBLET_R, damage: BOMBLET_DMG, bounce: false, split: false, age: 10, y: p.y - 2 };
           for (let g = 0; g < 200; g++) {
             const rb = w.flyStep(b);
             if (rb === 'fly') continue;
-            if (rb === 'explode') s += this.scoreBlast(w, b.x, b.y, 20, 20, m);
+            if (rb === 'explode') s += this.scoreBlast(w, b.x, b.y, BOMBLET_R, BOMBLET_DMG, m);
             break;
           }
         }

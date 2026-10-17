@@ -3,7 +3,7 @@
 // on each screen.
 import { makeRng, randomSeed, Rng } from 'arcade-kit/rng';
 import { load, save } from 'arcade-kit/storage';
-import { World, Input, Action, Settings, Event } from './world';
+import { World, Input, Action, Settings, Event, mapWidth, MAP_H } from './world';
 import { Bot } from './bot';
 import { THEMES } from './themes';
 import { HELP_PAGES } from './help';
@@ -158,10 +158,7 @@ export class Game {
 
   private makeWorld(settings: Settings, mapIndex: number) {
     const theme = mapIndex > 0 ? THEMES[mapIndex - 1] : THEMES[Math.floor(this.rng() * THEMES.length)];
-    // Narrow enough to keep an overview: under two screens for two teams.
-    const teams = settings.teams.length;
-    const w = 1100 + (teams - 2) * 300;
-    return new World(settings, theme, makeRng(randomSeed()), w, 720);
+    return new World(settings, theme, makeRng(randomSeed()), mapWidth(settings.teams.length), MAP_H);
   }
 
   private startAttract() {

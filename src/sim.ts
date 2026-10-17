@@ -1,7 +1,7 @@
 // A battle without a screen: CPU teams play each other as fast as the machine allows, for
 // balancing and for catching errors. Dev builds expose it on the console as sim().
 import { makeRng } from 'arcade-kit/rng';
-import { World, Settings, Event } from './world';
+import { World, Settings, Event, WeaponStat, mapWidth, MAP_H } from './world';
 import { Bot } from './bot';
 import { THEMES } from './themes';
 
@@ -16,14 +16,18 @@ export interface SimResult {
   /** Per turn: team, weapon, damage dealt that turn. */
   log: string[];
   error?: string;
+  /** What each weapon did. */
+  stats: Record<string, WeaponStat>;
+  /** Skill of each team, as played. */
+  skills: number[];
   /** The world as it ended, for poking at. */
   world: World;
 }
 
-export function simulate(opts: { seed?: number; teams?: number; moles?: number; skills?: number[]; theme?: number; maxFrames?: number; wind?: boolean; moveLimit?: number } = {}): SimResult {
+export function simulate(opts: { seed?: number; teams?: number; moles?: number; skill?: number; skills?: number[]; theme?: number; maxFrames?: number; wind?: boolean; moveLimit?: number } = {}): SimResult {
   const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
   const n = opts.teams ?? 2;
-  const skills = opts.skills ?? Array(n).fill(0.55);
+  const skills = opts.skills ?? Array(n).fill(opts.skill ?? 0.55);
   const settings: Settings = {
     teams: Array.from({ length: n }, (_, i) => ({ cpu: true, skill: skills[i] ?? 0.55 })),
     molesPerTeam: opts.moles ?? 3,
@@ -33,7 +37,7 @@ export function simulate(opts: { seed?: number; teams?: number; moles?: number; 
     suddenDeath: 10,
   };
   const theme = THEMES[opts.theme ?? seed % THEMES.length];
-  const w = new World(settings, theme, makeRng(seed), 1600 + (n - 2) * 320, 720);
+  const w = new World(settings, theme, makeRng(seed), mapWidth(n), MAP_H);
   const bots = w.teams.map((t) => new Bot(t.index, t.skill));
   const events: Partial<Record<Event, number>> = {};
   const log: string[] = [];
@@ -68,6 +72,8 @@ export function simulate(opts: { seed?: number; teams?: number; moles?: number; 
     teams: w.teams.map((t) => ({ name: t.name, dealt: t.dealt, kills: t.kills, alive: w.teamMoles(t.index).length, hp: w.teamHp(t.index) })),
     log,
     error,
+    stats: w.stats,
+    skills: w.teams.map((t) => t.skill),
     world: w,
   };
 }

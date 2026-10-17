@@ -67,10 +67,10 @@ const W = (w: Partial<Weapon> & Pick<Weapon, 'id' | 'name' | 'use' | 'blurb'>): 
 export const WEAPONS: Weapon[] = [
   W({ id: 'bazooka', name: 'BAZOOKA', use: 'charge', radius: 42, damage: 50, wind: true, blurb: 'BLOWS UP ON CONTACT. THE WIND BENDS IT.' }),
   W({ id: 'grenade', name: 'GRENADE', use: 'charge', radius: 42, damage: 50, bounce: true, blurb: 'BOUNCES, THEN GOES OFF. 1-5 SETS THE FUSE.' }),
-  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 3, radius: 32, damage: 30, bounce: true, blurb: 'BURSTS INTO FIVE BOMBLETS.' }),
-  W({ id: 'shotgun', name: 'SHOTGUN', use: 'instant', radius: 14, damage: 25, shots: 2, retreat: 0, blurb: 'TWO STRAIGHT SHOTS. AIM AGAIN BETWEEN THEM.' }),
+  W({ id: 'cluster', name: 'CLUSTER', use: 'charge', ammo: 2, radius: 26, damage: 20, bounce: true, blurb: 'BURSTS INTO FIVE BOMBLETS.' }),
+  W({ id: 'shotgun', name: 'SHOTGUN', use: 'instant', radius: 16, damage: 30, shots: 2, retreat: 0, blurb: 'TWO STRAIGHT SHOTS. AIM AGAIN BETWEEN THEM.' }),
   W({ id: 'dynamite', name: 'DYNAMITE', use: 'place', ammo: 2, radius: 72, damage: 75, fuse: 5, retreat: 5, blurb: 'DROP IT AND RUN. FIVE SECONDS.' }),
-  W({ id: 'airstrike', name: 'AIRSTRIKE', use: 'cursor', ammo: 1, radius: 30, damage: 30, wind: true, blurb: 'FIVE BOMBS FROM ABOVE. MARK THE SPOT.' }),
+  W({ id: 'airstrike', name: 'AIRSTRIKE', use: 'cursor', ammo: 1, radius: 26, damage: 24, wind: true, blurb: 'FIVE BOMBS FROM ABOVE. MARK THE SPOT.' }),
   W({ id: 'teleport', name: 'TELEPORT', use: 'cursor', ammo: 2, endsTurn: true, retreat: 0, blurb: 'GO ANYWHERE IN ONE BLINK.' }),
   W({ id: 'girder', name: 'GIRDER', use: 'cursor', ammo: 3, endsTurn: false, retreat: 0, blurb: 'A STEEL BEAM. UP/DOWN TURNS IT.' }),
   W({ id: 'rope', name: 'ROPE', use: 'instant', endsTurn: false, retreat: 0, blurb: 'HOOK ON AND SWING. FIRE AGAIN TO LET GO.' }),
